@@ -56,3 +56,29 @@
 
 **状態:** Accepted for v0.1 beta. β結果や少人数公開要件に応じて再評価する。
 
+## D-009 作詞用音韻表現をRaw / Phonetic / Normalizedの3層に分離する
+
+**決定:** Rhyme Normalizerでは、読みを以下の3層で保持する。
+
+1. Raw Reading
+2. Phonetic Representation
+3. Normalized Rhyme Representation
+
+Phonetic層では促音を `Q`、撥音を `N` として区別する。
+Normalized層ではv0.1の韻比較上、両者を特殊モーラクラス `X` として扱う。
+
+通常モーラは子音と母音を保持し、拗音は1モーラとして解析する。
+長音 `ー` はPhonetic層で保持し、Normalized層で直前母音を継承する。
+
+v0.1 βの暫定ルールとして以下を適用する。
+
+- `o + u -> o + o`
+- `e + i -> e + e`
+
+これら以外の異母音列は一般化して変換しない。
+
+**理由:** 作詞上の韻判定と日本語の元の音韻情報を分離し、v0.1で簡潔な比較を行いつつ、将来的な特殊モーラ・子音・歌唱発音の評価変更を可能にするため。
+
+**責務境界:** Rhyme Normalizerは読みが確定済みのかな文字列のみを扱う。漢字からの読み推定はReading Resolverの責務とし、LLM・意味評価・Sound Score計算には依存しない。
+
+**状態:** Accepted for v0.1 beta.
