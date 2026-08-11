@@ -20,5 +20,22 @@ v0.1は完成品ではなく、候補選出とスコアリングの納得度を�
 
 ## Development status
 
-Pre-implementation.
-Repository initialization and application bootstrap are intentionally deferred until the local Node.js/Git environment is verified.
+M0 project bootstrap complete. Product features have not been implemented.
+
+## Development
+
+Prerequisites:
+
+- Node.js 24 LTS
+- npm 11
+
+Common commands:
+
+```bash
+npm install
+npm run dev
+npm run lint
+npm run typecheck
+npm test
+npm run test:e2e
+```
