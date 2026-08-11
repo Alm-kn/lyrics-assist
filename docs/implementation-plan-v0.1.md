@@ -74,10 +74,17 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - selector unit tests
 
 ### M6 - Persistence
-- SQLite + Drizzle
-- session / round / candidate snapshot / feedback / configs
-- migration
-- repository layer
+- SQLite / Drizzle setup
+- 8 tables
+- migration files
+- schema constraints
+- Round snapshot persistence
+- Config immutable guarantee
+- Feedback upsert
+- transaction rollback integration test
+- DB file gitignore
+- no M7 pipeline
+- compatibility issue / RC dependency requirement occurs -> stop and report
 
 ### M7 - Application services
 - Generation Service

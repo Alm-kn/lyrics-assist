@@ -1,4 +1,4 @@
-# 歌詞作成補助ツール システム設計書 v0.1.2 β
+# 歌詞作成補助ツール システム設計書 v0.1.3 β
 
 > v0.1の実装設計のSource of Truth。技術スタックはβ向け仮決定であり、製品挙動を変えない実装詳細はDecision Logを更新した上で変更可能。
 
@@ -18,7 +18,7 @@ v0.1は個人利用を主目的とするWebアプリであり、将来的に少�
 | 形態 | Webアプリ |
 | 利用者 | 原則 owner 1名。tester追加を阻害しないデータ構造とする |
 | LLM | 外部LLM APIをAdapter越しに利用。具体モデルは設計・PoCで選定 |
-| 保存 | 生成履歴・評価内訳・FBを永続化。具体DB製品は未固定 |
+| 保存 | SQLite + Drizzleで生成履歴・評価内訳・FBを永続化。DBは当時の実験結果をsnapshotとして保持する |
 | 設計方針 | 単一アプリケーションとして小さく構成し、内部責務のみ明確に分離 |
 
 ## 1.1 設計原則
@@ -65,16 +65,16 @@ v0.1 βの実装開始に必要な技術前提として、以下を採用する�
    |-- Feedback Service
    `-- Preference Service
         |
-        v
-[ Domain Modules ]
-   |-- Reading Resolver
+        +-----------------------> [ LLM Adapter Port ]
+        |                              ^
+        |                              |
+        v                       [ Infrastructure LLM Adapter ]
+[ Domain Modules ]                      |
+   |-- Reading Resolver                 +----> [ External LLM API ]
    |-- Rhyme Normalizer
    |-- Sound Scorer
-   |-- Semantic Evaluator
-   |-- Candidate Selector
-   `-- LLM Adapter
-        |                 |
-        |                 +----> [ External LLM API ]
+   `-- Candidate Selector
+        |
         v
 [ Persistence / Database ]
 ```
@@ -88,9 +88,10 @@ v0.1ではこれらを別サービスへ分割しない。デプロイ単位は�
 | Web UI | 入力、10候補表示、XY詳細、リロール、FB | Backend APIのみ |
 | Backend API | HTTP受付、validation、認証/簡易user識別、レスポンス整形 | Application Services |
 | Application | ユースケース進行、トランザクション、モジュール呼出順制御 | Domain / Persistence |
-| Domain | 読み・正規化・採点・意味評価・選抜のルール | 外部I/Oへ直接依存しない |
-| LLM Adapter | モデル差分、JSON schema、retry、timeoutを吸収 | External LLM API |
-| Persistence | セッション、候補スナップショット、FB、設定版を保存 | DB |
+| Domain | 読み・正規化・採点・選抜の決定論的ルール | 外部I/Oへ直接依存しない |
+| Application Port | LLM等の外部能力をApplicationから利用する契約を定義 | Domain型 |
+| Infrastructure LLM Adapter | モデル差分、JSON schema、retry、timeoutを吸収しApplication Portを実装 | Application Port / External LLM API |
+| Persistence | セッション、候補スナップショット、FB、設定版を保存 | DB / Domain型 |
 
 # 3. 生成パイプライン
 
@@ -251,52 +252,97 @@ primaryRelationの暫定候補: synonym / emotion / scene / visual / sound / act
 
 ## 5.1 Adapter方針
 
+Application層は具体的なLLM SDKへ直接依存せず、Application所有の `LlmAdapter` Portを利用する。Infrastructure側がPortを実装する。
+
 ```text
-LLMService
-  generateCandidates(input) -> CandidatePool
-  evaluateSemantics(input) -> SemanticResults[]
+Application
+    |
+    v
+LlmAdapter Port
+    ^
+    |
+Infrastructure Adapter
+    |
+    v
+External LLM API
 ```
 
-Application層は具体モデル名を知らない。Adapterでmodel identifier、prompt version、schema、timeout、retryを管理する。これによりモデル比較PoCや将来の差し替えを可能にする。
+v0.1 contract:
+
+```text
+LlmAdapter
+  generateCandidates(request) -> GenerateCandidatesResult
+  evaluateSemantics(request)  -> EvaluateSemanticsResult
+```
+
+M4ではfixture injection型のdeterministic Stubのみ実装し、実LLM接続は後続Milestoneで行う。
 
 ## 5.2 Candidate Generation I/F
 
-```text
-CandidateGenerationInput {
-  keyword
-  reading
-  rhymePattern
-  targetCount       // default: 60
-  excludedWords[]   // reroll時
-}
+概念上のrequest:
 
-CandidateGenerationOutput {
-  candidates: [
-    {
-      word
-      readingHint?
-    }
-  ]
-  modelIdentifier
-  promptVersion
+```text
+GenerateCandidatesRequest {
+  source {
+    surface
+    reading
+  }
+  targetCount
+  excludeTerms[]
 }
 ```
 
-候補生成時点では10語への順位付けをLLMへ委ねない。LLMは探索範囲の広い候補プールを提供する役割とする。
+result:
+
+```text
+GenerateCandidatesResult {
+  candidates: [
+    {
+      candidateKey
+      surface
+      readingHint?
+    }
+  ]
+
+  metadata {
+    modelIdentifier
+    generationPromptVersion
+  }
+}
+```
+
+`candidateKey` はgeneration round内でcandidateを追跡するopaque keyであり、DB永続IDではない。
+
+候補生成時点では10語への順位付けをLLMへ委ねない。LLMは探索範囲の広いcandidate poolを提供する役割とする。
 
 ## 5.3 Semantic Evaluation I/F
 
-```text
-SemanticEvaluationInput {
-  keyword
-  candidates[]
-  evaluationPolicyVersion
-}
+Semantic EvaluationへSound Score、reading、rhyme情報を渡さない。Sound軸とSemantic軸を独立させる。
 
-SemanticEvaluationOutput {
+概念上のrequest:
+
+```text
+EvaluateSemanticsRequest {
+  source {
+    surface
+  }
+
+  candidates: [
+    {
+      candidateKey
+      surface
+    }
+  ]
+}
+```
+
+result:
+
+```text
+EvaluateSemanticsResult {
   results: [
     {
-      word
+      candidateKey
       score
       reason
       primaryRelation
@@ -304,8 +350,17 @@ SemanticEvaluationOutput {
       semanticCluster
     }
   ]
+
+  metadata {
+    modelIdentifier
+    semanticPromptVersion
+  }
 }
 ```
+
+候補とSemantic結果は配列indexではなく `candidateKey` で対応付ける。
+
+詳細は `docs/llm-adapter-design-v0.1.md` を参照する。
 
 # 6. Candidate Selector v0.1
 
@@ -322,22 +377,39 @@ SemanticEvaluationOutput {
 
 ## 6.2 選抜前フィルタ
 
-- 入力語そのものと同一の候補を除外する。
-- 表記差のみ・同一語の活用差など、lexical duplicate を除外する。
-- 候補プール内の完全重複を除外する。
-- リロール時は同一セッションの既出候補を原則除外する。
-- 読み取得または評価に失敗した候補は選抜対象外とする。
+General Filterでは以下をfallbackでも解除しないhard exclusionとして扱う。
+
+- source word自身
+- reroll等の `excludeTerms`
+- canonical duplicate
+- 必要な評価情報を持たないcandidate
+- duplicate `candidateKey` により対応が曖昧なcandidate
+
+canonical surfaceはv0.1で以下を適用する。
+
+1. leading / trailing whitespace除去
+2. Unicode NFKC
+3. Latin lowercase
+4. カタカナを対応するひらがなへ正規化
+
+reading一致だけではduplicate扱いしない。候補間のedit similarity / embedding / pairwise LLM similarity等はM5では導入しない。
+
 ## 6.3 Balanced 4枠
 
-単純平均では片方だけ極端に高い候補が入り得るため、弱い側のスコアを重視したβ用ランキングを採用する。
+弱い側の軸を重視したβ用rankingを採用する。
 
 ```text
-balancedRank =
-  0.7 * min(soundScore, semanticScore)
-+ 0.3 * ((soundScore + semanticScore) / 2)
+minScore  = min(soundScore, semanticScore)
+meanScore = (soundScore + semanticScore) / 2
+
+balancedScore =
+  0.7 * minScore
++ 0.3 * meanScore
 ```
 
-同一semanticClusterからの採用は原則2語までとし、ほぼ同じ意味方向だけで4枠が埋まることを防ぐ。閾値・係数は selection_config へ外出しする。
+primaryでは同一 `semanticCluster` 最大2。
+
+同点時は、現在のBalanced selected内で少ないcluster、minScore、meanScore、canonicalSurface、candidateKeyの順に安定tie-breakする。
 
 ## 6.4 Sound-focused 3枠
 
@@ -345,7 +417,9 @@ balancedRank =
 soundRank = soundScore
 ```
 
-semanticScoreは減点に使用しない。韻候補としての価値を優先するため、semanticClusterの重複制限は設けない。ただしlexical duplicateは共通フィルタで除外する。
+Semantic Scoreを減点に使用しない。`primaryRelation` / `semanticCluster` によるdiversity constraintも設けない。
+
+同点時はEnding Rhyme Bonus、Mora Length Similarity、canonicalSurface、candidateKeyの順に比較する。
 
 ## 6.5 Semantic-focused 3枠
 
@@ -353,45 +427,63 @@ semanticScoreは減点に使用しない。韻候補としての価値を優先�
 semanticRank = semanticScore
 ```
 
-semanticScore上位を採りつつ、3語は可能な限り異なる primaryRelation / semanticCluster から選ぶ。
+Sound Scoreを減点に使用しない。
 
-1. semanticScoreが最も高い未選択候補を1語採用する。
-1. 次候補は、既選択のSemantic-focused候補と primaryRelation / semanticCluster が重複しないものを優先する。
-1. 3語を満たせない場合のみ、semanticCluster重複 → primaryRelation重複の順で制約を緩和する。
-例: 「夜」に対して『月・星・夜空』より、『月（視覚/情景）・孤独（感情）・ネオン（都市/視覚）』のように異なる連想経路を優先する。
+primaryでは同一 `semanticCluster` 最大1。
+
+semanticScore同点時は、未使用 `primaryRelation`、selected内で少ない `semanticCluster`、canonicalSurface、candidateKeyの順に多様性を優先する。`primaryRelation` はhard constraintではない。
 
 ## 6.6 選抜順序と枠不足
 
+primary selectionは以下の順で行う。
+
 ```text
-Scored Pool
-  -> Balanced: 4
-  -> remove selected
-  -> Sound-focused: 3
-  -> remove selected
-  -> Semantic-focused: 3
-  -> if shortage: fallback fill
-  -> final 10
+Balanced  up to 4
+↓
+Sound     up to 3
+↓
+Semantic  up to 3
 ```
 
-4/3/3は目標配分であり、良質候補不足時の絶対制約ではない。枠不足時は残候補から、各カテゴリのいずれかで高評価かつ重複の少ない候補をfallbackとして補填する。補填発生数と理由は保存する。
+一度選択されたcandidateはremaining poolから除外し、複数categoryへ重複選択しない。
+
+10件未満の場合は、
+
+```text
+Balanced -> Sound -> Semantic -> Balanced -> ...
+```
+
+のround-robin fallbackを行い、1 strategy turnにつき最大1件追加する。
+
+- hard exclusionはfallbackでも解除しない
+- Balancedはcluster max2を維持し、候補がなければcapを解除
+- Semanticはprimary max1 -> fallback max2 -> unrestrictedの順で緩和
+- Soundはsemantic diversity constraintを追加しない
+- valid candidateが不足する場合は10件未満を返す
+- v0.1ではabsolute score thresholdを設けない
+
+詳細は `docs/candidate-selector-design-v0.1.md` を参照する。
 
 ## 6.7 Selector出力
 
+M5までの生成・評価・選抜pipelineではcandidateを `candidateKey` で追跡する。DB永続IDはM6以降、CandidateResult保存時に付与する。
+
 ```text
 SelectedCandidate {
-  candidateResultId
+  candidateKey
   selectionCategory   // balanced | sound | semantic | fallback
-  selectionRank
+  fallbackStrategy?   // category = fallback の場合のみ必須
   selectionScore
-  selectionReason
 }
 
 SelectionResult {
-  selected[10]
+  selected[]          // 最大targetTotal件。10件未満を許容
   selectionConfigVersion
   shortageEvents[]
 }
 ```
+
+表示・永続化時の順序は `selected` の実際の選抜順を使用する。
 
 # 7. セッション / リロール設計
 
@@ -404,32 +496,62 @@ GenerationSession
 
 リロールは新規セッションではなく、同一GenerationSessionにGenerationRoundを追加する。除外語として過去Roundの提示候補をCandidate Generationへ渡す。
 
-候補枯渇時に既出語再利用を許可する場合は、既出再利用フラグと理由を結果へ残す。
+`excludeTerms` は「過去に提示済みなので次Roundで再提示しない語」を表し、明示的なDislikeとは別概念として扱う。
 
-# 8. 論理データモデル
+v0.1ではsource自身・reroll `excludeTerms`・canonical duplicate等のhard exclusionをfallbackでも解除しない。valid candidateが不足する場合は10件未満を返し、既出語を再利用して無理に10件へ合わせない。
+
+# 8. Persistence / 論理データモデル
+
+## 8.1 Persistence方針
+
+v0.1 persistenceにはSQLite + Drizzleを使用する。Runtime driverはNode built-in `node:sqlite` を第一候補とし、具体的なDrizzle package version / migration runnerはM6実装開始時にNode 24.19.0との互換性を確認してpinする。
+
+Persistenceは「現在の正解状態」ではなく、当時の生成・評価・選抜結果をimmutable experiment snapshotとして保存する。
+
+- Sound / Semantic評価済みcandidate pool全体を保存し、selected 10件だけに限定しない。
+- GenerationSession / GenerationRound / CandidateResultを分離する。
+- Candidate Generation / Semantic Evaluation / Selection等のraw result JSONと、分析用scalar projectionを併存させる。
+- CandidateFeedback / SoundScoreFeedbackは履歴ではなくcurrent stateとして保持する。
+- ScoringConfig / SelectionConfigはversioned immutable snapshotとして保存する。
+- DB永続IDとgeneration round内の `CandidateKey` を分離する。
+- FK delete actionはv0.1では原則 `RESTRICT` とする。
+- completed Roundの永続化はtransactionでatomicに行い、途中状態を残さない。
+- PreferenceProfile / reevaluation / operation log / performance timingはM6では実装しない。
+
+詳細は `docs/persistence-design-v0.1.md` を参照する。
+
+## 8.2 論理Entity
 
 | Entity | 主なフィールド | 目的 |
 | --- | --- | --- |
-| User | id, type(owner/tester) | 将来の少人数試用時にFBを混在させない |
-| GenerationSession | id, user_id, keyword, source_reading, created_at | 1キーワードの探索単位 |
-| GenerationRound | id, session_id, round_no, created_at | 初回/リロールの世代管理 |
-| CandidateResult | word, reading, rhyme, scores, relations, category, versions | その時点の評価スナップショット |
-| CandidateFeedback | result_id, user_id, like/dislike | 候補そのものへの嗜好 |
-| ScoreFeedback | result_id, user_id, low/valid/high | 語感評価関数への納得度 |
-| PreferenceProfile | user_id, numeric features, version | 将来の個人最適化 |
-| ScoringConfig | weights, adjustments, version | 語感算出条件 |
-| SelectionConfig | 4/3/3, thresholds, cluster caps, version | Selector条件 |
+| User | id, created_at | owner / testerのデータ所有境界。v0.1では認証accountではない |
+| GenerationSession | id, user_id, source_surface, source_reading, created_at | 一連のsource word探索単位 |
+| GenerationRound | id, session_id, round_number, input条件, raw result snapshots, config versions | 初回/リロール1回分の完成した実験snapshot |
+| CandidateResult | id, round_id, candidate_key, word/reading/rhyme, sound/semantic, selected, selection情報 | 評価済みcandidate pool全体のsnapshot |
+| CandidateFeedback | candidate_result_id, like/dislike, timestamps | 候補そのものへの最終嗜好 |
+| SoundScoreFeedback | candidate_result_id, low/valid/high, timestamps | Sound Scoreへの最終納得度 |
+| ScoringConfig | version, config_json | Sound Scorer条件のimmutable version |
+| SelectionConfig | version, config_json | Candidate Selector条件のimmutable version |
 
-## 8.1 CandidateResultはスナップショットとして保持
+PreferenceProfileは将来概念として残すが、M6ではtableを作成しない。
+
+## 8.3 CandidateResultはスナップショットとして保持
 
 ルール変更後も『当時なぜその候補がその点数だったか』を再現できるよう、CandidateResultには計算結果だけでなく入力値・内訳・バージョンを保存する。
 
+selected / unselectedを問わず、Sound / Semantic評価まで完了したcandidate pool全体を保存する。
+
 ```text
 CandidateResult {
+  id                  // DB永続ID
+  roundId
+  candidateKey        // generation round内identity
+  generationIndex
+
   surface
   reading
-  rawPhonetic
-  normalizedRhymePattern
+  readingResult
+  rhymeRepresentation
 
   soundScore
   soundBreakdown
@@ -439,17 +561,20 @@ CandidateResult {
   secondaryRelations
   semanticCluster
 
-  selectionCategory
-  selectionScore
+  selected
+  selectionCategory?
+  fallbackStrategy?
+  selectionScore?
+  selectionRank?
 
-  scoringConfigVersion
-  normalizerVersion
-  selectionConfigVersion
-  modelIdentifier
-  generationPromptVersion
+  semanticModelIdentifier
   semanticPromptVersion
 }
 ```
+
+Normalizer / ScoringConfig / SelectionConfig / Generation model / Prompt等のRound共通metadataはGenerationRound側にもsnapshotする。
+
+将来新しいScorer / Selectorで過去データを再評価しても、元CandidateResultをUPDATEしない。再評価結果の永続化が必要になった場合は別entityとして追加する。
 
 # 9. Backend API（論理I/F）
 
@@ -550,7 +675,9 @@ XY散布図は結果説明に加え、Candidate Selectorが3方向へ適切に�
 - 公開範囲拡大時に認証・rate limit・利用規約等を再設計する。v0.1では先取りしない。
 ## 13.3 観測性
 
-β調整のため、少なくともSession ID / Round / LLM latency / LLM failure / candidate pool size / filtered count / category allocation / fallback count / version群をログまたはDBで追跡できるようにする。
+β調整のため、Session ID / Round / candidate pool size / selected / unselected、category allocation、fallback、version群等を後から追跡できるデータ構造を維持する。
+
+LLM latency / failure / token usage / performance timing等のoperation-level観測性はM6では永続化せず、Application pipelineが接続されるM7以降に実際のstage境界を確認して設計する。
 
 # 14. テスト設計
 

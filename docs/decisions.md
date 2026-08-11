@@ -134,3 +134,26 @@ Semantic EvaluationにはSound Scoreや音韻類似情報を渡さず、意味�
 **理由:** 単純な総合点上位ではなく、音・意味・両立の3方向を保ちつつ、候補集合全体の多様性と再現性を確保するため。
 
 **状態:** Accepted for v0.1 beta.
+
+## D-015 v0.1 Persistenceをimmutable experiment snapshotとして保存する
+
+**決定:** v0.1ではSQLite + DrizzleをPersistence layerとして使用し、
+GenerationSession / GenerationRound / CandidateResultを当時の生成・評価・選抜結果のsnapshotとして保存する。
+
+Sound / Semantic評価済みcandidate poolはselected / unselectedを問わず保存する。
+後に評価基準が変更されても、過去のscore / selectionを新しい値で上書きしない。
+
+Candidate Generation / Semantic Evaluation / Selectionの完全resultはJSON snapshotとして保持し、
+主要なscore / relation / selection情報は分析用columnへprojectionする。
+
+CandidateFeedback / SoundScoreFeedbackは履歴ではなくcurrent stateとして保持する。
+ScoringConfig / SelectionConfigはversioned immutable configとして保存する。
+
+M6ではPreferenceProfile、再評価履歴、LLM call log、failed pipeline log、performance timingを実装しない。
+
+**理由:** v0.1 βの目的は、その時点の評価ロジックとユーザー反応を後から比較・分析し、
+Sound / Semantic / Selection基準を実測データから改善することにあるため。
+過去データを「現在の正解」へ書き換えると当時の挙動を復元できなくなるため、
+実験記録としての履歴保存を優先する。
+
+**状態:** Accepted for v0.1 beta.
