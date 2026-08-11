@@ -59,6 +59,17 @@ type EvaluatedCandidate = {
 
 実際のTypeScript定義は既存M1〜M4型を可能な限り再利用する。
 
+**補足**
+M5までの生成・評価・選抜pipelineでは、candidateの識別子として `CandidateKey` を使用する。
+
+`CandidateKey` はgeneration round内でcandidateを追跡するDomain上の識別子であり、
+DB上の永続IDではない。
+
+`candidateResultId` 等の永続化IDはM6以降、CandidateResultをDBへ保存した時点で付与する。
+
+したがってCandidate Selectorの入力・出力は `candidateKey` を保持し、
+未作成のDB IDへ依存しない。
+
 ---
 
 ## 4. General Filter

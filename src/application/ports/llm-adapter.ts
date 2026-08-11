@@ -3,11 +3,11 @@ import type {
   ModelIdentifier,
   SemanticPromptVersion,
 } from "../../domain/config/types";
+import type { CandidateKey } from "../../domain/candidate/types";
 import type { ReadingResult } from "../../domain/reading/types";
 import type { SemanticResult } from "../../domain/semantic/types";
 
-/** Opaque candidate identity controlled by one generation round's caller. */
-export type CandidateKey = string;
+export type { CandidateKey } from "../../domain/candidate/types";
 
 export type GenerateCandidatesSource = Pick<
   ReadingResult,

@@ -1,3 +1,4 @@
+export * from "./candidate/types";
 export * from "./config/types";
 export * from "./reading/types";
 export * from "./rhyme/rhyme-normalizer";
@@ -5,5 +6,7 @@ export * from "./rhyme/types";
 export * from "./scoring/sound-scorer";
 export * from "./scoring/sound-scoring-config";
 export * from "./scoring/types";
+export * from "./selection/candidate-selector";
+export * from "./selection/selection-config";
 export * from "./selection/types";
 export * from "./semantic/types";

@@ -92,14 +92,14 @@ describe("domain type contracts", () => {
     const selectionResult: SelectionResult = {
       selected: [
         {
-          candidateResultId: "candidate-result-id",
+          candidateKey: "candidate-key",
           selectionCategory: "balanced",
           selectionRank: 1,
           selectionScore: 78,
           selectionReason: "Compile-time fixture only",
         },
       ],
-      selectionConfigVersion: "selector-v0.1",
+      selectionConfigVersion: "selection-v0.1",
       shortageEvents: [],
     };
 
@@ -141,7 +141,8 @@ describe("domain type contracts", () => {
     } satisfies SoundScoringConfig;
 
     const selectionConfig = {
-      version: "selector-v0.1",
+      version: "selection-v0.1",
+      targetTotal: 10,
       targetCounts: {
         balanced: 4,
         sound: 3,
@@ -152,10 +153,11 @@ describe("domain type contracts", () => {
         averageAxisWeight: 0.3,
         maximumPerSemanticCluster: 2,
       },
-      semanticDiversity: {
-        preferDistinctPrimaryRelations: true,
-        preferDistinctSemanticClusters: true,
+      semantic: {
+        primaryMaximumPerSemanticCluster: 1,
+        fallbackMaximumPerSemanticCluster: 2,
       },
+      fallbackPriority: ["balanced", "sound", "semantic"],
     } satisfies SelectionConfig;
 
     const promptConfig = {
@@ -170,7 +172,7 @@ describe("domain type contracts", () => {
 
     expect(normalizationConfig.version).toBe("rhyme-v0.1");
     expect(scoringConfig.version).toBe("sound-v0.1");
-    expect(selectionConfig.version).toBe("selector-v0.1");
+    expect(selectionConfig.version).toBe("selection-v0.1");
     expect(promptConfig.version).toBe("candidate-v0.1");
     expect(modelConfig.identifier).toBe("provider/model-id");
   });
