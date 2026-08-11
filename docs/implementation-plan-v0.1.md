@@ -51,11 +51,15 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - symmetry / determinism / boundary unit tests
 
 ### M4 - LLM Adapter stub
-- LLMService interface
-- candidate generation schema
-- semantic evaluation schema
-- fake/stub provider
-- 実APIはまだ接続しない
+- Application PortとしてLLM Adapter contractを定義
+- `generateCandidates()` contract
+- `evaluateSemantics()` contract
+- candidateKeyによるcandidate対応付け
+- generation / semantic metadata
+- fixture injection型 deterministic Stub
+- network / OpenAI SDK / API keyなし
+- contract unit tests
+- M5以降には着手しない
 
 ### M5 - Candidate Selector
 - Balanced 4

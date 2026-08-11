@@ -56,7 +56,7 @@ Ending Rhyme Bonusは、Normalized列の共通末尾unit数を2語の長い方�
 ## D-010 将来機能の管理
 **決定:** v0.1要件と将来構想を分離し、将来案は roadmap.md に置く。
 
-## D-008 v0.1 技術スタックを単一TypeScript Webアプリ構成とする
+## D-011 v0.1 技術スタックを単一TypeScript Webアプリ構成とする
 
 **決定:** v0.1 βでは以下を仮採用する。
 
@@ -77,7 +77,7 @@ Ending Rhyme Bonusは、Normalized列の共通末尾unit数を2語の長い方�
 
 **状態:** Accepted for v0.1 beta. β結果や少人数公開要件に応じて再評価する。
 
-## D-009 作詞用音韻表現をRaw / Phonetic / Normalizedの3層に分離する
+## D-012 作詞用音韻表現をRaw / Phonetic / Normalizedの3層に分離する
 
 **決定:** Rhyme Normalizerでは、読みを以下の3層で保持する。
 
@@ -103,3 +103,17 @@ v0.1 βの暫定ルールとして以下を適用する。
 **責務境界:** Rhyme Normalizerは読みが確定済みのかな文字列のみを扱う。漢字からの読み推定はReading Resolverの責務とし、LLM・意味評価・Sound Score計算には依存しない。
 
 **状態:** Accepted for v0.1 beta.
+
+## D-013 LLMとの境界をApplication Portとして定義する
+
+**決定:** Application層はOpenAI等の具体SDKへ直接依存せず、LLM Adapter Portを介してCandidate GenerationとSemantic Evaluationを利用する。
+
+Infrastructure側がこのPortを実装する。
+
+M4ではfixture injection型のdeterministic Stubのみ実装し、実LLM接続は行わない。
+
+Semantic EvaluationにはSound Scoreや音韻類似情報を渡さず、意味・文脈軸をSound軸から独立して評価する。
+
+候補とSemantic結果の対応付けには配列indexではなく `candidateKey` を使用する。
+
+**理由:** LLM provider / model / prompt変更からApplicationロジックを分離し、Sound軸とSemantic軸の独立性、テスト再現性、将来のAdapter差し替え可能性を保つため。

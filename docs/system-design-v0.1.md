@@ -641,3 +641,39 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 - 新規生成 / リロール / FBの論理APIと保存データが定義されている。
 - UT/ITの責務境界が定義されている。
 - 未決定事項が実装を阻害するものと、後決め可能なものに分離されている。
+
+※追記
+### LLM Adapter
+
+Application層は具体的なLLM SDKへ直接依存しない。
+LLMとの境界はApplication Portとして定義し、Infrastructure側が実装する。
+
+```text
+Application
+    |
+    v
+LLM Adapter Port
+    ^
+    |
+Infrastructure Adapter
+```
+
+v0.1では最低限以下の2 contractを持つ。
+
+```ts
+generateCandidates(...)
+evaluateSemantics(...)
+```
+
+Candidate Generationには確定済みreading、targetCount、excludeTermsを渡せるようにする。
+生成候補にはgeneration round内で一意な `candidateKey` を持たせる。
+
+Semantic EvaluationはSound情報を受け取らず、意味・文脈軸を独立して評価する。
+Semantic結果もcandidateKeyを返し、配列順ではなくkeyで候補と対応付ける。
+
+Generation / Semanticの各結果は、実際に使用した `modelIdentifier` とprompt versionをmetadataとして保持する。
+
+M4では実LLMへ接続せず、fixture injection型のdeterministic Stubのみ実装する。
+実OpenAI Responses API接続は後続Milestoneで行う。
+
+詳細は `docs/llm-adapter-design-v0.1.md` を参照する。
