@@ -5,22 +5,47 @@ import type {
 } from "../config/types";
 import type { RawReadingRepresentation } from "../reading/types";
 
-/**
- * One token in the parsed phonetic layer, such as "u", "N", or "do".
- * It is deliberately not the lyric-normalized comparison unit.
- */
-export type PhoneticToken = string;
+/** The five vowel classes used by the v0.1 phonetic model. */
+export type Vowel = "a" | "i" | "u" | "e" | "o";
+
+export interface MoraPhoneticToken {
+  readonly kind: "mora";
+  readonly surface: string;
+  readonly consonant: string | null;
+  readonly vowel: Vowel;
+}
+
+export interface SokuonPhoneticToken {
+  readonly kind: "sokuon";
+  readonly surface: "っ" | "ッ";
+  readonly symbol: "Q";
+}
+
+export interface HatsuonPhoneticToken {
+  readonly kind: "hatsuon";
+  readonly surface: "ん" | "ン";
+  readonly symbol: "N";
+}
+
+export interface LongPhoneticToken {
+  readonly kind: "long";
+  readonly surface: "ー";
+}
+
+/** Phonetic tokens preserve distinctions that normalization may later merge. */
+export type PhoneticToken =
+  | MoraPhoneticToken
+  | SokuonPhoneticToken
+  | HatsuonPhoneticToken
+  | LongPhoneticToken;
 
 /** Parsed phonetic data derived from, but kept separate from, the raw reading. */
 export interface PhoneticRepresentation {
   readonly tokens: readonly PhoneticToken[];
 }
 
-/**
- * One unit in a lyric-normalized rhyme pattern, such as a vowel or "X".
- * The unit remains extensible because later normalization modes are undecided.
- */
-export type NormalizedRhymeUnit = string;
+/** The comparison units fixed by the v0.1 normalization design. */
+export type NormalizedRhymeUnit = Vowel | "X";
 
 /** A comparison representation produced by a specific normalizer version. */
 export interface NormalizedRhymeRepresentation {

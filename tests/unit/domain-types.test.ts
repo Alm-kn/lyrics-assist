@@ -31,7 +31,12 @@ describe("domain type contracts", () => {
         morae: reading.morae,
       },
       phonetic: {
-        tokens: ["u", "N", "do", "u"],
+        tokens: [
+          { kind: "mora", surface: "う", consonant: null, vowel: "u" },
+          { kind: "hatsuon", surface: "ん", symbol: "N" },
+          { kind: "mora", surface: "ど", consonant: "d", vowel: "o" },
+          { kind: "mora", surface: "う", consonant: null, vowel: "u" },
+        ],
       },
       normalized: {
         units: ["u", "X", "o", "o"],
@@ -40,7 +45,12 @@ describe("domain type contracts", () => {
     } satisfies RhymeRepresentations;
 
     expect(rhyme.rawReading.reading).toBe("うんどう");
-    expect(rhyme.phonetic.tokens).toEqual(["u", "N", "do", "u"]);
+    expect(rhyme.phonetic.tokens.map((token) => token.kind)).toEqual([
+      "mora",
+      "hatsuon",
+      "mora",
+      "mora",
+    ]);
     expect(rhyme.normalized.units).toEqual(["u", "X", "o", "o"]);
   });
 
