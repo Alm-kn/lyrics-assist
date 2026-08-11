@@ -186,28 +186,49 @@ raw reading
 
 ## 4.3 Sound Scorer
 
-語感スコアは決定論的に算出する。v0.1では以下をβ仮説値として採用し、FBに応じて設定値だけを変更できるようにする。
+語感スコアは決定論的に算出する。v0.1では以下をβ仮説値として採用し、FBに応じて設定値・評価式を変更できるようにする。
 
 | 構成 | 初期重み/補正 | 概要 |
 | --- | --- | --- |
-| Mora Length | 40% | モーラ数差。差0=100 / 1=70 / 2=35 / 3以上=0 |
-| Vowel Position Match | 25% | 同位置の正規化母音/特殊モーラ一致率 |
-| Sequence Similarity | 25% | 正規化列の編集距離を0〜100へ変換 |
-| Lyric Adjustment | 最大 ±10点 | 語尾一致等。詳細は設定として段階的に追加 |
+| Mora Length | 40% | Phoneticモーラ数差。差0=100 / 1=70 / 2=35 / 3以上=0 |
+| Position Match | 25% | 同位置の正規化unit（a/i/u/e/o/X）一致率 |
+| Sequence Similarity | 25% | 正規化列の標準Levenshtein距離を0〜100へ変換 |
+| Ending Rhyme Bonus | 0〜10点 | 共通末尾unit数 / 2語の長い方のNormalized length をcoverageとし、coverage × 10を線形加算 |
+
+```text
+SoundScore
+ =
+ 0.40 × MoraLengthSimilarity
++0.25 × PositionMatchSimilarity
++0.25 × SequenceSimilarity
++EndingRhymeBonus
+```
+
+v0.1ではnegative adjustmentを使用しない。Ending Bonusは語尾一致がPosition Match / Sequence Similarityにも一部反映されることを承知した上で、作詞上の語尾一致感を最大10点だけ追加評価するヒューリスティックとして扱う。
+
+Sound ScorerはRhyme Normalizerを内部から呼ばず、正規化済みの `RhymeRepresentations` を入力として受け取る。子音およびPhonetic層のQ/N差はv0.1のSound Scoreには使用しない。
 
 ```text
 SoundScoreResult {
   finalScore: 0..100
   breakdown: {
     moraLengthScore
-    vowelPositionScore
+    positionMatchScore
     sequenceSimilarityScore
   }
-  adjustments: [...]
+  endingAdjustment: {
+    commonSuffixLength
+    suffixCoverage
+    bonus
+  }
   scoringConfigVersion
   normalizerVersion
 }
 ```
+
+最終表示用 `finalScore` のみ最後に四捨五入し、中間値はβ分析のため保持する。
+
+詳細は `docs/sound-scorer-design-v0.1.md` を参照する。
 
 ## 4.4 Semantic Evaluator
 

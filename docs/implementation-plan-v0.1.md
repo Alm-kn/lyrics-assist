@@ -42,12 +42,13 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - unit tests
 
 ### M3 - Sound Scorer
-- mora length
-- vowel position match
-- sequence similarity
-- lyric adjustment hook
-- versioned config
-- unit tests
+- mora length similarity
+- normalized position match
+- standard Levenshtein sequence similarity
+- linear suffix-coverage ending bonus (0..10)
+- versioned sound scoring config
+- score breakdown / ending adjustment metrics
+- symmetry / determinism / boundary unit tests
 
 ### M4 - LLM Adapter stub
 - LLMService interface

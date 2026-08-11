@@ -12,9 +12,30 @@
 **決定:** 語感類似度 / 意味・文脈近接度の2軸。v0.1では同価値（50:50）。
 
 ## D-004 語感評価
-**決定:** LLM主観採点ではなく、再現可能な音韻アルゴリズム + 作詞向け補正のハイブリッド方式。
-**初期仮説:** モーラ長40%、母音位置一致25%、正規化編集類似度25%、作詞補正最大±10点。
-**備考:** 重みはβFBで調整する。
+**決定:** LLM主観採点ではなく、再現可能な音韻アルゴリズム + 作詞向け補正のハイブリッド方式とする。
+
+**v0.1初期仮説:**
+
+```text
+SoundScore
+ =
+ 0.40 × MoraLengthSimilarity
++0.25 × PositionMatchSimilarity
++0.25 × SequenceSimilarity
++EndingRhymeBonus
+```
+
+- Mora Length: 40%
+- Position Match: 25%
+- 標準Levenshtein由来のSequence Similarity: 25%
+- Ending Rhyme Bonus: 0〜10点
+- negative adjustmentはv0.1では使用しない
+
+Ending Rhyme Bonusは、Normalized列の共通末尾unit数を2語の長い方のNormalized lengthで割った `suffixCoverage` を用い、`suffixCoverage × 10` の線形補正とする。
+
+**備考:** 上記はβ検証用の仮説であり、各中間値・config versionを保存してSound Score Feedbackから調整する。
+
+注: Decision Logに既存の番号重複がある場合は、今回の更新では新しいDecision番号を追加せず、既存D-004の内容更新だけに留める。
 
 ## D-005 意味・文脈評価
 **決定:** 曖昧性が高いためLLMを主に利用。類義だけでなく情景、感情、因果、連想、比喩を含める。
