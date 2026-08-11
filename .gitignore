@@ -10,6 +10,11 @@
 /playwright-report
 /test-results
 
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
 # local environment files
 .env*
 !.env.example

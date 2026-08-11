@@ -1,0 +1,1024 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "74d807fb-e6d0-4e87-8294-7eeb2a84199a",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "ddl": [
+    {
+      "name": "candidate_feedback",
+      "entityType": "tables"
+    },
+    {
+      "name": "candidate_results",
+      "entityType": "tables"
+    },
+    {
+      "name": "generation_rounds",
+      "entityType": "tables"
+    },
+    {
+      "name": "generation_sessions",
+      "entityType": "tables"
+    },
+    {
+      "name": "scoring_configs",
+      "entityType": "tables"
+    },
+    {
+      "name": "selection_configs",
+      "entityType": "tables"
+    },
+    {
+      "name": "sound_score_feedback",
+      "entityType": "tables"
+    },
+    {
+      "name": "users",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "candidate_result_id",
+      "entityType": "columns",
+      "table": "candidate_feedback"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "candidate_feedback"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "candidate_feedback"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "candidate_feedback"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "round_id",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "candidate_key",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_index",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "surface",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_reading_hint",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reading",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "reading_result_json",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "rhyme_representation_json",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sound_final_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sound_raw_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "mora_length_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position_match_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sequence_similarity_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "common_suffix_length",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "suffix_coverage",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "ending_bonus",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "sound_result_json",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_reason",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "primary_relation",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "secondary_relations_json",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_cluster",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_model_identifier",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_prompt_version",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_result_json",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selected",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selection_category",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "fallback_strategy",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "real",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selection_score",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selection_rank",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "candidate_results"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "round_number",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_target_count",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "exclude_terms_json",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_model_identifier",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_prompt_version",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "generation_result_json",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "semantic_evaluation_result_json",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "normalizer_version",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_rhyme_json",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "scoring_config_version",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selection_config_version",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "selection_result_json",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "generation_rounds"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "generation_sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "table": "generation_sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_surface",
+      "entityType": "columns",
+      "table": "generation_sessions"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "source_reading",
+      "entityType": "columns",
+      "table": "generation_sessions"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "generation_sessions"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "version",
+      "entityType": "columns",
+      "table": "scoring_configs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "config_json",
+      "entityType": "columns",
+      "table": "scoring_configs"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "scoring_configs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "version",
+      "entityType": "columns",
+      "table": "selection_configs"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "config_json",
+      "entityType": "columns",
+      "table": "selection_configs"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "selection_configs"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "candidate_result_id",
+      "entityType": "columns",
+      "table": "sound_score_feedback"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "sound_score_feedback"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "sound_score_feedback"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "sound_score_feedback"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "table": "users"
+    },
+    {
+      "columns": [
+        "candidate_result_id"
+      ],
+      "tableTo": "candidate_results",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_candidate_feedback_candidate_result_id_candidate_results_id_fk",
+      "entityType": "fks",
+      "table": "candidate_feedback"
+    },
+    {
+      "columns": [
+        "round_id"
+      ],
+      "tableTo": "generation_rounds",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_candidate_results_round_id_generation_rounds_id_fk",
+      "entityType": "fks",
+      "table": "candidate_results"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "generation_sessions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_generation_rounds_session_id_generation_sessions_id_fk",
+      "entityType": "fks",
+      "table": "generation_rounds"
+    },
+    {
+      "columns": [
+        "scoring_config_version"
+      ],
+      "tableTo": "scoring_configs",
+      "columnsTo": [
+        "version"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_generation_rounds_scoring_config_version_scoring_configs_version_fk",
+      "entityType": "fks",
+      "table": "generation_rounds"
+    },
+    {
+      "columns": [
+        "selection_config_version"
+      ],
+      "tableTo": "selection_configs",
+      "columnsTo": [
+        "version"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_generation_rounds_selection_config_version_selection_configs_version_fk",
+      "entityType": "fks",
+      "table": "generation_rounds"
+    },
+    {
+      "columns": [
+        "user_id"
+      ],
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_generation_sessions_user_id_users_id_fk",
+      "entityType": "fks",
+      "table": "generation_sessions"
+    },
+    {
+      "columns": [
+        "candidate_result_id"
+      ],
+      "tableTo": "candidate_results",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "nameExplicit": false,
+      "name": "fk_sound_score_feedback_candidate_result_id_candidate_results_id_fk",
+      "entityType": "fks",
+      "table": "sound_score_feedback"
+    },
+    {
+      "columns": [
+        "candidate_result_id"
+      ],
+      "nameExplicit": false,
+      "name": "candidate_feedback_pk",
+      "table": "candidate_feedback",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "candidate_results_pk",
+      "table": "candidate_results",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "generation_rounds_pk",
+      "table": "generation_rounds",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "generation_sessions_pk",
+      "table": "generation_sessions",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "version"
+      ],
+      "nameExplicit": false,
+      "name": "scoring_configs_pk",
+      "table": "scoring_configs",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "version"
+      ],
+      "nameExplicit": false,
+      "name": "selection_configs_pk",
+      "table": "selection_configs",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "candidate_result_id"
+      ],
+      "nameExplicit": false,
+      "name": "sound_score_feedback_pk",
+      "table": "sound_score_feedback",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "users_pk",
+      "table": "users",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false
+        },
+        {
+          "value": "created_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "generation_sessions_user_id_created_at_idx",
+      "entityType": "indexes",
+      "table": "generation_sessions"
+    },
+    {
+      "columns": [
+        "round_id",
+        "candidate_key"
+      ],
+      "nameExplicit": true,
+      "name": "candidate_results_round_id_candidate_key_unique",
+      "entityType": "uniques",
+      "table": "candidate_results"
+    },
+    {
+      "columns": [
+        "round_id",
+        "generation_index"
+      ],
+      "nameExplicit": true,
+      "name": "candidate_results_round_id_generation_index_unique",
+      "entityType": "uniques",
+      "table": "candidate_results"
+    },
+    {
+      "columns": [
+        "round_id",
+        "selection_rank"
+      ],
+      "nameExplicit": true,
+      "name": "candidate_results_round_id_selection_rank_unique",
+      "entityType": "uniques",
+      "table": "candidate_results"
+    },
+    {
+      "columns": [
+        "session_id",
+        "round_number"
+      ],
+      "nameExplicit": true,
+      "name": "generation_rounds_session_id_round_number_unique",
+      "entityType": "uniques",
+      "table": "generation_rounds"
+    },
+    {
+      "value": "\"value\" IN ('like', 'dislike')",
+      "name": "candidate_feedback_value_check",
+      "entityType": "checks",
+      "table": "candidate_feedback"
+    },
+    {
+      "value": "\"generation_index\" >= 0",
+      "name": "candidate_results_generation_index_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"selected\" IN (0, 1)",
+      "name": "candidate_results_selected_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"sound_final_score\" BETWEEN 0 AND 100",
+      "name": "candidate_results_sound_final_score_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"semantic_score\" BETWEEN 0 AND 100",
+      "name": "candidate_results_semantic_score_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"common_suffix_length\" >= 0",
+      "name": "candidate_results_common_suffix_length_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"suffix_coverage\" BETWEEN 0 AND 1",
+      "name": "candidate_results_suffix_coverage_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "(\n        \"selected\" = 0\n        AND \"selection_category\" IS NULL\n        AND \"fallback_strategy\" IS NULL\n        AND \"selection_score\" IS NULL\n        AND \"selection_rank\" IS NULL\n      ) OR (\n        \"selected\" = 1\n        AND \"selection_category\" IS NOT NULL\n        AND \"selection_category\" IN ('balanced', 'sound', 'semantic', 'fallback')\n        AND \"selection_score\" IS NOT NULL\n        AND \"selection_rank\" IS NOT NULL\n        AND \"selection_rank\" >= 1\n        AND (\n          (\"selection_category\" = 'fallback' AND \"fallback_strategy\" IS NOT NULL AND \"fallback_strategy\" IN ('balanced', 'sound', 'semantic'))\n          OR\n          (\"selection_category\" IN ('balanced', 'sound', 'semantic') AND \"fallback_strategy\" IS NULL)\n        )\n      )",
+      "name": "candidate_results_selection_consistency_check",
+      "entityType": "checks",
+      "table": "candidate_results"
+    },
+    {
+      "value": "\"round_number\" >= 1",
+      "name": "generation_rounds_round_number_check",
+      "entityType": "checks",
+      "table": "generation_rounds"
+    },
+    {
+      "value": "\"generation_target_count\" > 0",
+      "name": "generation_rounds_target_count_check",
+      "entityType": "checks",
+      "table": "generation_rounds"
+    },
+    {
+      "value": "\"value\" IN ('low', 'valid', 'high')",
+      "name": "sound_score_feedback_value_check",
+      "entityType": "checks",
+      "table": "sound_score_feedback"
+    }
+  ],
+  "renames": []
+}

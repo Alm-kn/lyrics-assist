@@ -157,3 +157,20 @@ Sound / Semantic / Selection基準を実測データから改善することに�
 実験記録としての履歴保存を優先する。
 
 **状態:** Accepted for v0.1 beta.
+
+## D-016 M6ではDrizzle RCをexact pinしてNode SQLiteを利用する
+
+**決定:** M6では `node:sqlite` とDrizzleの互換性確認結果に基づき、
+`drizzle-orm@1.0.0-rc.4` / `drizzle-kit@1.0.0-rc.4` をexact versionで採用する。
+
+RC Smoke Gateにより、Node.js 24.19.0上でDB接続、Foreign Key enforcement、
+migration generation / application、query、integrity checkが成立することを確認した。
+
+Product / Domain仕様はRC版へ依存させない。
+Drizzleのstable版でNode SQLite workflowが利用可能になった時点で、
+import path、migration、schema snapshot互換性を再確認した上で移行を検討する。
+
+**理由:** stable版では今回必要なNode SQLite integrationが利用できず、
+公式Node SQLiteガイドもRC版を案内しているため。
+
+**状態:** Accepted for v0.1 beta.
