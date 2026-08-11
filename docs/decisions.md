@@ -35,8 +35,6 @@ Ending Rhyme Bonusは、Normalized列の共通末尾unit数を2語の長い方�
 
 **備考:** 上記はβ検証用の仮説であり、各中間値・config versionを保存してSound Score Feedbackから調整する。
 
-注: Decision Logに既存の番号重複がある場合は、今回の更新では新しいDecision番号を追加せず、既存D-004の内容更新だけに留める。
-
 ## D-005 意味・文脈評価
 **決定:** 曖昧性が高いためLLMを主に利用。類義だけでなく情景、感情、因果、連想、比喩を含める。
 
@@ -117,3 +115,22 @@ Semantic EvaluationにはSound Scoreや音韻類似情報を渡さず、意味�
 候補とSemantic結果の対応付けには配列indexではなく `candidateKey` を使用する。
 
 **理由:** LLM provider / model / prompt変更からApplicationロジックを分離し、Sound軸とSemantic軸の独立性、テスト再現性、将来のAdapter差し替え可能性を保つため。
+
+## D-014 v0.1 Candidate Selector
+
+**決定:** D-006の10語選抜方針を、v0.1 Candidate Selectorの具体ルールとして以下の通り定義する。
+
+- Primary targetはBalanced 4 / Sound 3 / Semantic 3。
+- Balanced rankは `0.7 * min(sound, semantic) + 0.3 * mean(sound, semantic)`。
+- Balanced primaryでは同一semanticCluster最大2。
+- Sound-focusedではSemantic情報による減点を行わない。
+- Semantic-focused primaryでは同一semanticCluster最大1とし、relation / cluster diversityを優先する。
+- literal duplicateとsemantic redundancyを別概念として扱う。
+- duplicate判定はcanonical surfaceを基準とし、reading一致だけでは除外しない。
+- 不足時はBalanced -> Sound -> Semanticのround-robin fallbackを行う。
+- hard exclusionはfallbackでも解除せず、diversity constraintだけを必要時に緩和する。
+- v0.1ではabsolute score thresholdを設定しない。βデータ取得後に実測score distributionを基に検討する。
+
+**理由:** 単純な総合点上位ではなく、音・意味・両立の3方向を保ちつつ、候補集合全体の多様性と再現性を確保するため。
+
+**状態:** Accepted for v0.1 beta.

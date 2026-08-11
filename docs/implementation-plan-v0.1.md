@@ -62,13 +62,16 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - M5以降には着手しない
 
 ### M5 - Candidate Selector
-- Balanced 4
-- Sound-focused 3
-- Semantic-focused 3
-- duplicate filtering
-- semantic diversity
-- fallback allocation
-- unit tests
+- general canonical duplicate / exclude filter
+- Balanced 4 target
+- Sound-focused 3 target
+- Semantic-focused 3 target
+- semantic relation / cluster diversity
+- B -> S -> Semantic round-robin fallback
+- fallback diversity relaxation
+- deterministic tie-break
+- versioned SelectionConfig
+- selector unit tests
 
 ### M6 - Persistence
 - SQLite + Drizzle

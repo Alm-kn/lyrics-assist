@@ -677,3 +677,46 @@ M4では実LLMへ接続せず、fixture injection型のdeterministic Stubのみ�
 実OpenAI Responses API接続は後続Milestoneで行う。
 
 詳細は `docs/llm-adapter-design-v0.1.md` を参照する。
+
+### Candidate Selector
+
+v0.1では、評価済みcandidate poolから単純な総合点上位10件を取らず、以下をprimary targetとする。
+
+```text
+Balanced-focused   4
+Sound-focused      3
+Semantic-focused   3
+```
+
+Balanced:
+
+```text
+minScore  = min(soundScore, semanticScore)
+meanScore = (soundScore + semanticScore) / 2
+
+balancedScore
+ = 0.7 * minScore
+ + 0.3 * meanScore
+```
+
+Balanced primaryでは同一 `semanticCluster` 最大2。
+
+Sound-focusedは `soundScore` のみでrankし、Semantic ScoreやsemanticClusterでは減点しない。
+
+Semantic-focusedは `semanticScore` を基本rankとし、primaryでは同一semanticCluster最大1。`primaryRelation` / `semanticCluster` の多様性をtie-breakで優先する。
+
+General Filterではsource自身、reroll excludeTerms、canonical duplicate等をhard exclusionする。reading一致だけではduplicate扱いしない。
+
+primary 4/3/3が不足した場合は、
+
+```text
+Balanced -> Sound -> Semantic -> Balanced -> ...
+```
+
+のround-robin fallbackで、1 strategy turnにつき最大1件ずつ補填する。
+
+hard exclusionはfallbackでも解除しない。semantic diversity constraintのみ必要に応じて緩和する。
+
+v0.1ではabsolute score thresholdを設けない。βデータ収集後にscore distribution、percentile、standard score等を確認して検討する。
+
+詳細は `docs/candidate-selector-design-v0.1.md` を参照する。
