@@ -1,5 +1,4 @@
 import type {
-  ConfigParameters,
   NormalizerVersion,
   ScoringConfigVersion,
   VersionedConfig,
@@ -17,20 +16,24 @@ export type ScoreWeight = number;
 /** Every deterministic component retained for score explanation and analysis. */
 export interface SoundScoreBreakdown {
   readonly moraLengthScore: Score0To100;
-  readonly vowelPositionScore: Score0To100;
+  readonly positionMatchScore: Score0To100;
   readonly sequenceSimilarityScore: Score0To100;
 }
 
-/** One applied lyric-oriented correction to the weighted base score. */
+/** Numeric evidence retained for the v0.1 linear ending-rhyme bonus. */
 export interface SoundScoreAdjustment {
   readonly ruleId: string;
   readonly scoreDelta: number;
   readonly reason: string;
+  readonly commonSuffixLength: number;
+  readonly suffixCoverage: number;
+  readonly bonus: number;
 }
 
 /** The complete deterministic sound-scoring result and its version context. */
 export interface SoundScoreResult {
   readonly finalScore: Score0To100;
+  readonly rawScore: number;
   readonly breakdown: SoundScoreBreakdown;
   readonly adjustments: readonly SoundScoreAdjustment[];
   readonly reason: string;
@@ -41,7 +44,7 @@ export interface SoundScoreResult {
 /** Configurable weights for the v0.1 sound-score components. */
 export interface SoundScoringWeights {
   readonly moraLength: ScoreWeight;
-  readonly vowelPosition: ScoreWeight;
+  readonly positionMatch: ScoreWeight;
   readonly sequenceSimilarity: ScoreWeight;
 }
 
@@ -51,18 +54,15 @@ export interface MoraLengthScoringConfig {
   readonly fallbackScore: Score0To100;
 }
 
-/** Configuration boundary for an adjustment whose behavior is implemented later. */
-export interface SoundAdjustmentConfig {
-  readonly id: string;
-  readonly enabled: boolean;
-  readonly minimumDelta: number;
-  readonly maximumDelta: number;
-  readonly parameters?: ConfigParameters;
+/** Configuration for the v0.1 linear suffix-coverage adjustment. */
+export interface EndingRhymeBonusConfig {
+  readonly maxPoints: number;
+  readonly mode: "linear-suffix-coverage";
 }
 
-/** Versioned sound-scoring settings without score calculation logic. */
+/** Versioned sound-scoring settings consumed by the deterministic scorer. */
 export interface SoundScoringConfig extends VersionedConfig<ScoringConfigVersion> {
   readonly weights: SoundScoringWeights;
   readonly moraLength: MoraLengthScoringConfig;
-  readonly adjustments: readonly SoundAdjustmentConfig[];
+  readonly endingBonus: EndingRhymeBonusConfig;
 }

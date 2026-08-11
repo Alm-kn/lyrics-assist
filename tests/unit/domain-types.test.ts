@@ -57,9 +57,10 @@ describe("domain type contracts", () => {
   it("exposes score, semantic, and selection results with version context", () => {
     const soundResult: SoundScoreResult = {
       finalScore: 82,
+      rawScore: 81.5,
       breakdown: {
         moraLengthScore: 100,
-        vowelPositionScore: 76,
+        positionMatchScore: 76,
         sequenceSimilarityScore: 70,
       },
       adjustments: [
@@ -67,6 +68,9 @@ describe("domain type contracts", () => {
           ruleId: "example-adjustment",
           scoreDelta: 1,
           reason: "Compile-time fixture only",
+          commonSuffixLength: 1,
+          suffixCoverage: 0.1,
+          bonus: 1,
         },
       ],
       reason: "Compile-time fixture only",
@@ -123,14 +127,17 @@ describe("domain type contracts", () => {
       version: "sound-v0.1",
       weights: {
         moraLength: 0.4,
-        vowelPosition: 0.25,
+        positionMatch: 0.25,
         sequenceSimilarity: 0.25,
       },
       moraLength: {
         scoreByDifference: { 0: 100, 1: 70 },
         fallbackScore: 0,
       },
-      adjustments: [],
+      endingBonus: {
+        maxPoints: 10,
+        mode: "linear-suffix-coverage",
+      },
     } satisfies SoundScoringConfig;
 
     const selectionConfig = {

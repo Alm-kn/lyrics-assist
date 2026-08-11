@@ -102,6 +102,10 @@ source / candidateともに、少なくとも1モーラ以上の有効な音韻�
 空のPhonetic RepresentationまたはNormalized Rhyme RepresentationはSound Scorerの有効入力としない。
 空入力に遭遇した場合は、0点として黙って処理せず明示的なinvalid inputとして扱う。
 
+source / candidate の `normalizerVersion` は一致していなければならない。
+異なるNormalizer versionで生成された表現同士は比較可能性を保証できないため、
+Sound Scorerはinvalid inputとして明示的に拒否する。
+
 ---
 
 ## 5. Mora Length Similarity
