@@ -1,10 +1,10 @@
-# 歌詞作成補助ツール システム設計書 v0.1.3 β
+# 歌詞作成補助ツール システム設計書 v0.1.4 β
 
 > v0.1の実装設計のSource of Truth。技術スタックはβ向け仮決定であり、製品挙動を変えない実装詳細はDecision Logを更新した上で変更可能。
 
 要件定義書 v0.1 β / Roadmap / Decision Log を基に作成
 
-| 位置づけ | 本書は小規模個人開発向けに、基本設計と詳細設計の境界を1冊に統合した設計書である。具体技術スタックは未固定とし、論理アーキテクチャ・責務・データ・I/F・テスト境界を先に定義する。 |
+| 位置づけ | 本書は小規模個人開発向けに、基本設計と詳細設計の境界を1冊に統合した設計書である。v0.1の採用技術スタックを明示しつつ、論理アーキテクチャ・責務・データ・I/F・テスト境界をSource of Truthとして定義する。 |
 | --- | --- |
 
 # 1. 文書の目的と設計スコープ
@@ -40,7 +40,7 @@ v0.1 βの実装開始に必要な技術前提として、以下を採用する�
 | UI Styling | CSS Modules / Global CSS | v0.1は極小UIのため大規模UIライブラリを先取りせず、依存を最小化する。 |
 | Schema / Validation | Zod | API/LLM構造化出力の型とvalidationをTypeScript側で明示しやすい。 |
 | Database | SQLite | 個人利用βでは運用負荷が小さく、生成履歴・FB保存に十分。公開規模拡大時は再評価する。 |
-| ORM | Drizzle ORM | SQL構造を保ちつつTypeScriptで型安全に扱え、将来のDB変更時にも責務を分離しやすい。 |
+| ORM | Drizzle ORM `1.0.0-rc.4` / Drizzle Kit `1.0.0-rc.4`（exact pin） | `node:sqlite` 対応を公式手順に沿ってSmoke Gate確認済み。Product / Domain仕様はRC固有APIへ依存させない。 |
 | Unit Test | Vitest | RhymeNormalizer / SoundScorer / CandidateSelector等の決定論的TypeScriptロジックを高速に検証しやすい。 |
 | E2E Test | Playwright | Browser上の初期画面→生成→詳細→FB等の主要フローを自動検証できる。 |
 | LLM API | OpenAI Responses API + Structured Outputs | 候補生成・意味評価をJSON Schemaに沿う構造化データとして受け取りやすい。具体モデルは未固定。 |
@@ -63,106 +63,185 @@ v0.1 βの実装開始に必要な技術前提として、以下を採用する�
    |-- Generation Service
    |-- Reroll Service
    |-- Feedback Service
-   `-- Preference Service
+   `-- Session Query Service
         |
-        +-----------------------> [ LLM Adapter Port ]
-        |                              ^
+        +------------------------------+
         |                              |
-        v                       [ Infrastructure LLM Adapter ]
-[ Domain Modules ]                      |
-   |-- Reading Resolver                 +----> [ External LLM API ]
-   |-- Rhyme Normalizer
-   |-- Sound Scorer
-   `-- Candidate Selector
-        |
-        v
-[ Persistence / Database ]
+        v                              v
+[ Domain Modules ]             [ Application Ports ]
+   |-- Rhyme Normalizer           |-- ReadingResolver
+   |-- Sound Scorer               |-- LlmAdapter
+   `-- Candidate Selector         |-- RoundPersistencePort
+                                  |-- SessionQueryPort
+                                  `-- FeedbackPersistencePort
+                                           ^
+                                           |
+                              [ Infrastructure Implementations ]
+                                 |-- Stub ReadingResolver
+                                 |-- Stub / Real LLM Adapter
+                                 `-- SQLite / Drizzle Persistence
+                                           |
+                                           +----> [ External LLM API ]
 ```
 
 v0.1ではこれらを別サービスへ分割しない。デプロイ単位は原則1つとし、コード上のモジュール境界として分離する。
+
+依存方向は以下を原則とする。
+
+```text
+Application -> Domain
+Application -> Application Ports
+Infrastructure -> Application Ports
+Domain -X-> Application / Infrastructure
+Application -X-> concrete Infrastructure implementation
+```
 
 ## 2.1 レイヤ責務
 
 | レイヤ | 責務 | 依存の方向 |
 | --- | --- | --- |
-| Web UI | 入力、10候補表示、XY詳細、リロール、FB | Backend APIのみ |
-| Backend API | HTTP受付、validation、認証/簡易user識別、レスポンス整形 | Application Services |
-| Application | ユースケース進行、トランザクション、モジュール呼出順制御 | Domain / Persistence |
-| Domain | 読み・正規化・採点・選抜の決定論的ルール | 外部I/Oへ直接依存しない |
-| Application Port | LLM等の外部能力をApplicationから利用する契約を定義 | Domain型 |
-| Infrastructure LLM Adapter | モデル差分、JSON schema、retry、timeoutを吸収しApplication Portを実装 | Application Port / External LLM API |
-| Persistence | セッション、候補スナップショット、FB、設定版を保存 | DB / Domain型 |
+| Web UI | 入力、候補表示、XY詳細、リロール、FB | Backend APIのみ |
+| Backend API | HTTP受付、validation、user識別、レスポンス整形 | Application Services |
+| Application | ユースケース進行、処理順制御、Port呼出し、completed Roundのatomic persistence要求 | Domain / Application Ports |
+| Domain | 韻正規化・語感採点・候補選抜の決定論的ルール | 外部I/Oへ直接依存しない |
+| Application Ports | Reading / LLM / Persistence等の外部能力をApplicationから利用する契約を定義 | Domain / Application DTO |
+| Infrastructure | Reading / LLM / SQLite等の具体実装を提供し、Application Portを実装する | Application Ports / External I/O |
+| Persistence | Session、Round、Candidate snapshot、FB、設定版を保存し、transactionのBEGIN / COMMIT / ROLLBACKを担う | DB / Application Port |
+
+Application自身はDrizzleや `DatabaseSync` を直接利用しない。atomicな保存単位をPortへ要求し、具体transactionはInfrastructure Persistenceが実行する。
+
+詳細は `docs/application-service-design-v0.1.md` を参照する。
 
 # 3. 生成パイプライン
+
+M7では、独立して実装済みのDomain / Adapter / PersistenceをApplication Serviceで以下の順序に接続する。
 
 ```text
 keyword
   |
   v
-1. Input Validation
+1. Basic Input Precondition
   |
   v
-2. Reading Resolution
+2. Source Reading Resolution
   |
   v
-3. Rhyme Normalization
+3. Source Rhyme Normalization
   |
   v
-4. Candidate Pool Generation  ---- LLM
+4. Candidate Pool Generation -------- LLM Adapter
   |
   v
-5. Candidate Reading Resolution
+5. candidateKey Integrity Filter
   |
-  +---------------------+
-  |                     |
-  v                     v
-6. Sound Scoring    7. Semantic Evaluation ---- LLM
-  |                     |
-  +----------+----------+
-             |
-             v
-8. Filtering / Candidate Selector
-             |
-             v
-9. Save Snapshot
-             |
-             v
-10. Return 10 candidates to UI
+  v
+6. Candidate Reading Resolution
+  |
+  v
+7. Candidate Rhyme Normalization
+  |
+  v
+8. Sound Scoring
+  |
+  v
+9. Semantic Evaluation --------------- LLM Adapter
+  |
+  v
+10. Semantic Result Reconciliation
+  |
+  v
+11. Candidate Selector
+  |
+  v
+12. Completed Round Snapshot Assembly
+  |
+  v
+13. Atomic Persistence
+  |
+  v
+14. persisted ID Mapping
+  |
+  v
+15. Return selected candidates
 ```
 
-候補プール件数は設定値とし、初期値は60件を想定する。要件上の40〜100件の範囲で、品質・速度・APIコストを見ながら調整する。
+Candidate Generationのtarget countはApplication設定値とし、v0.1 defaultは60件とする。LLM Adapter自身は「60件」というProduct判断を持たない。
+
+Generation Result内で同一 `candidateKey` が複数存在する場合、そのkeyに属するcandidateは後段からすべて除外する。ただしraw Generation Resultには保持する。
+
+Candidate Readingが `unresolved` の場合は該当candidateのみ除外する。Reading Resolver自体のsystem failureはRound全体の失敗として扱う。
+
+Semantic Evaluationには `candidateKey` とsurfaceのみを渡し、reading / rhyme / Sound Scoreを渡さない。Semantic Resultのunknown / duplicate / missing keyはcandidate単位でreconcileし、安全に1対1対応できるcandidateのみevaluated poolへ進める。
+
+evaluated poolが0件の場合はRoundを完成扱いにせず保存しない。1件以上存在する場合はSelectorを実行し、selectedが10件未満でもcompleted Roundとして保存する。candidate不足を理由とする追加生成はv0.1では行わない。
 
 ## 3.1 生成ユースケースの入出力
 
 | 段階 | 入力 | 出力 |
 | --- | --- | --- |
-| Input | keyword, user_id(owner), optional session context | validated keyword |
-| Reading | surface word | reading, morae, phonetic tokens |
-| Normalize | phonetic tokens | rhyme pattern + rule version |
-| Generate | keyword context | candidate pool |
-| Score | source + candidate | sound breakdown / semantic score / relations |
-| Select | scored pool + config | 10 candidates, category, selection reason |
-| Persist | all intermediate/output data | session/round/result IDs |
+| Input | userId, sourceSurface | validated application input |
+| Source Reading | source surface | ReadingResult |
+| Normalize | ReadingResult | source RhymeRepresentations + normalizerVersion |
+| Generate | source surface/reading, targetCount, excludeTerms | raw GenerateCandidatesResult |
+| Candidate Processing | generation candidates | resolved reading / rhyme / SoundScoreResult |
+| Semantic | source surface + candidateKey/surface | raw EvaluateSemanticsResult |
+| Reconcile | sound-complete candidates + semantic results | safely evaluated candidate pool |
+| Select | evaluated pool + config + excludeTerms | SelectionResult（最大10件、10件未満可） |
+| Persist | completed snapshot + config/version metadata | sessionId / roundId / candidateResultId mapping |
+| Return | selected result + persisted ID mapping | GeneratedRoundView |
 
-# 4. ドメインモジュール設計
+詳細なI/F・error contract・保存挙動は `docs/application-service-design-v0.1.md` を参照する。
 
-## 4.1 Reading Resolver
+# 4. Domain / Core Processing設計
 
-日本語表記から比較に必要な読みを取得する。辞書・形態素解析・LLM等の具体方式は未決定とし、Provider差し替え可能なI/Fとする。
+## 4.1 Reading Resolver（Application Port）
 
-```text
-resolveReading(surface: string) -> ReadingResult
+日本語表記から比較に必要な確定readingを取得する能力は、Domain moduleではなくApplication所有のPortとして定義する。辞書・形態素解析・LLM等の具体方式はInfrastructure実装へ隔離する。
 
-ReadingResult {
-  surface
-  reading
-  morae[]
-  source        // dictionary | parser | llm | manual
-  confidence?   // providerが返せる場合
+概念I/F:
+
+```ts
+type ResolveReadingRequest = {
+  surface: string;
+  readingHint?: string;
+};
+
+type ReadingResolution =
+  | {
+      status: "resolved";
+      reading: ReadingResult;
+    }
+  | {
+      status: "unresolved";
+    };
+
+interface ReadingResolver {
+  resolve(request: ResolveReadingRequest): Promise<ReadingResolution>;
 }
 ```
 
-複数読みが存在する語はv0.1では最有力読みを採用する。曖昧語による違和感が多い場合、将来ユーザー指定または候補選択を追加する。
+Candidate Generationが返す `readingHint` は補助情報であり、確定readingとして盲信しない。Resolverが最終的な `ReadingResult` を返す。
+
+失敗時の扱い:
+
+```text
+source unresolved
+  -> Generation Use Case失敗
+  -> LLM Candidate Generationを呼ばない
+  -> DB保存なし
+
+candidate unresolved
+  -> 該当candidateだけ後段から除外
+  -> raw Generation Resultには残す
+
+ReadingResolver system failure / throw
+  -> Round全体失敗
+  -> DB保存なし
+```
+
+M7ではfixture injection型のdeterministic `StubReadingResolver` のみ実装する。real providerはReal External Adapter接続Milestoneで実装する。
+
+Rhyme NormalizerはReadingResolverを内部から呼ばず、確定済みReadingResultを受け取る責務分離を維持する。
 
 ## 4.2 Rhyme Normalizer
 
@@ -266,6 +345,8 @@ Infrastructure Adapter
     v
 External LLM API
 ```
+
+ReadingResolverおよびPersistenceも同じ原則でApplication Portとして所有し、Infrastructureが具体実装を提供する。Applicationから具体的なSDK・DB driver・Repository実装へ直接依存しない。
 
 v0.1 contract:
 
@@ -489,22 +570,71 @@ SelectionResult {
 
 ```text
 GenerationSession
-  |-- Round 1 : 10 candidates
-  |-- Round 2 : 10 candidates
-  `-- Round n : 10 candidates
+  |-- Round 1
+  |-- Round 2
+  `-- Round n
 ```
 
-リロールは新規セッションではなく、同一GenerationSessionにGenerationRoundを追加する。除外語として過去Roundの提示候補をCandidate Generationへ渡す。
+リロールは新規Sessionではなく、同一GenerationSessionへ次のGenerationRoundを追加する。
 
-`excludeTerms` は「過去に提示済みなので次Roundで再提示しない語」を表し、明示的なDislikeとは別概念として扱う。
+Reroll Application Serviceは `userId + sessionId` でSession contextを取得し、保存済みの `sourceSurface / sourceReading` を利用する。source readingをReadingResolverへ再問い合わせしない。
 
-v0.1ではsource自身・reroll `excludeTerms`・canonical duplicate等のhard exclusionをfallbackでも解除しない。valid candidateが不足する場合は10件未満を返し、既出語を再利用して無理に10件へ合わせない。
+一方、以下はRound時点のcurrent versionを使用する。
+
+```text
+Rhyme Normalizer
+ScoringConfig
+SelectionConfig
+```
+
+したがって同一Session内で、
+
+```text
+Round 1: sound-v0.1 / selector-v0.1
+Round 2: sound-v0.2 / selector-v0.2
+```
+
+のようなversion差を許容する。source Rhyme Representationもcurrent Normalizerで再生成する。
+
+## 7.1 excludeTerms
+
+`excludeTerms` は「過去に表示済みなので次Roundで再提示しない語」を表し、明示的なDislikeとは別概念として扱う。
+
+同一Sessionの過去全Roundについて、実際にselectedされたcandidate surfaceのみから構築する。
+
+```text
+roundNumber ascending
+  -> selectionRank ascending
+```
+
+未選抜candidateは含めない。重複surfaceは最初の出現だけを残してよい。
+
+同じexcludeTermsを、
+
+```text
+Candidate Generation
+Candidate Selector
+```
+
+の両方へ渡す。
+
+Candidate Generation側では探索hint、Candidate Selector側ではhard exclusionとして機能する。LLMが既出語を再生成してもraw Generation Resultには保持できるが、Selectorで再表示を防ぐ。
+
+v0.1ではsource自身・reroll `excludeTerms`・canonical duplicate等のhard exclusionをfallbackでも解除しない。valid candidateが不足する場合は10件未満を返し、既出語やdummy candidateで無理に10件へ合わせない。
+
+## 7.2 Reroll concurrency
+
+v0.1では同一Sessionへの完全同時rerollに対する自動retry / lock戦略を追加しない。
+
+DBの `UNIQUE(session_id, round_number)` を最終整合性ガードとし、競合時はPersistence failureとして扱う。必要性が実測された段階で再設計する。
+
+詳細は `docs/application-service-design-v0.1.md` を参照する。
 
 # 8. Persistence / 論理データモデル
 
 ## 8.1 Persistence方針
 
-v0.1 persistenceにはSQLite + Drizzleを使用する。Runtime driverはNode built-in `node:sqlite` を第一候補とし、具体的なDrizzle package version / migration runnerはM6実装開始時にNode 24.19.0との互換性を確認してpinする。
+v0.1 persistenceにはSQLite + Drizzleを使用する。Runtime driverはNode built-in `node:sqlite` を使用し、`drizzle-orm@1.0.0-rc.4` / `drizzle-kit@1.0.0-rc.4` をexact pinする。Node.js 24.19.0上でSmoke Gateにより接続、Foreign Key enforcement、migration生成・fresh DB適用、query、integrity checkを確認済み。RC固有APIはInfrastructureへ隔離し、Product / Domain仕様へ波及させない。
 
 Persistenceは「現在の正解状態」ではなく、当時の生成・評価・選抜結果をimmutable experiment snapshotとして保存する。
 
@@ -662,22 +792,31 @@ XY散布図は結果説明に加え、Candidate Selectorが3方向へ適切に�
 
 ## 13.1 エラー方針
 
-- 入力不正: 4xx相当で即時返却し、LLMを呼ばない。
-- LLM timeout / schema不正: Adapterで限定回数retry。失敗時はRound全体を失敗として扱う。
-- 候補不足: Selectorのfallbackを実行し、10語未満なら不足数を明示して返す。無理に低品質候補を捏造しない。
-- 読み解析失敗: 該当候補を除外し、必要なら候補生成を追加実行する。
-- DB保存失敗: UIへ成功レスポンスを返す前に検知し、結果とFBの不整合を避ける。
+- 入力不正: Applicationで最低限のpreconditionを確認し、Backend APIでは追加validationを行う。入力不正時はLLMを呼ばない。
+- source reading unresolved: Generationを開始せず失敗。Candidate Generationを呼ばず、Session / Roundも保存しない。
+- candidate reading unresolved: 該当candidateのみ後段から除外する。candidate不足を理由とする追加生成はv0.1では行わない。
+- Reading Resolver system failure: source / candidateを問わずRound全体を失敗として扱い、completed Roundを保存しない。
+- LLM timeout / provider failure / schema failure: Adapter責務で限定的なretry / validationを扱う。Adapterが失敗を返した場合、ApplicationではRound全体を失敗として扱う。
+- duplicate generation candidateKey: 同一keyに属するcandidateを後段からすべて除外し、raw Generation Resultには保持する。
+- Semantic Resultのunknown / duplicate / missing candidateKey: 安全に1対1対応できない該当candidateをevaluated poolから除外し、raw Semantic Resultには保持する。
+- evaluated candidate 0件: `NO_EVALUABLE_CANDIDATES` 相当としてRoundを保存しない。
+- 候補不足: evaluated poolが1件以上ならSelectorを実行し、10件未満でも正常なcompleted Roundとして保存・返却する。追加生成やdummy補填は行わない。
+- DB保存失敗: Infrastructure transactionをrollbackし、UIへ成功レスポンスを返さない。
+- Session / CandidateResult ownership不一致: 外部へ存在有無を漏らさないためNOT_FOUND相当として扱う。
+
+Application-level error codeと保存挙動の詳細は `docs/application-service-design-v0.1.md` を参照する。
+
 ## 13.2 セキュリティ / プライバシー
 
 - LLM APIキーはBackendのみで管理し、Browserへ埋め込まない。
 - LLMへ送信する情報はキーワード・候補・評価に必要な最小限とする。
-- 少人数試用を開始する場合はuser識別を追加し、ownerのPreferenceデータとtesterのFBを分離する。
+- Application Use Caseは `userId` でresource ownershipをscopeし、owner / testerデータの混在を防ぐ。v0.1ではauthentication自体はまだ実装しない。
 - 公開範囲拡大時に認証・rate limit・利用規約等を再設計する。v0.1では先取りしない。
 ## 13.3 観測性
 
 β調整のため、Session ID / Round / candidate pool size / selected / unselected、category allocation、fallback、version群等を後から追跡できるデータ構造を維持する。
 
-LLM latency / failure / token usage / performance timing等のoperation-level観測性はM6では永続化せず、Application pipelineが接続されるM7以降に実際のstage境界を確認して設計する。
+LLM latency / failure / token usage / performance timing等のoperation-level観測性はM7でも永続化しない。Application pipeline完成後、実測されたbottleneckとβ分析需要を見て必要なstage timing / operation logを設計する。
 
 # 14. テスト設計
 
@@ -697,11 +836,18 @@ LLM latency / failure / token usage / performance timing等のoperation-level観
 
 | 結合 | 主な検証 |
 | --- | --- |
-| API -> Application -> DB | 新規生成/リロール/FBの永続化 |
-| Generation -> Reading -> Scoring -> Selector | 候補プールから10語が一貫したデータで生成される |
-| LLM Adapter contract | structured output schema、timeout/retry、model/prompt version記録 |
-| Reroll -> DB history | 既出候補が次Roundに渡り、原則再選出されない |
-| Feedback -> CandidateResult | 候補FBとスコアFBが別系統で正しい結果へ紐づく |
+| Application Pipeline | Stub ReadingResolver + Stub LLM + real Domain + temporary SQLiteでInitial Generationをend-to-end接続 |
+| Generation -> Persistence | selected / unselectedを含むevaluated pool全件、raw snapshot、candidateResultId mappingが一貫して保存される |
+| Reading failure boundary | source unresolvedは外部生成前に停止、candidate unresolvedはcandidate単位除外、Resolver system failureはRound全体失敗 |
+| candidateKey reconciliation | Generation duplicate、Semantic unknown / duplicate / missing keyを安全に処理する |
+| Semantic independence | Semantic requestへreading / rhyme / Sound Scoreを渡さない |
+| Reroll | stored sourceReading再利用、current Normalizer / Config、過去selected由来excludeTerms、同一SessionへのRound追加 |
+| Session Query | 保存済みsnapshotをroundNumber / selectionRank順で返し、Scorer / Selectorを再実行しない |
+| Feedback | Candidate Like/DislikeとSound Feedbackを別系統でcurrent-state保存し、user ownershipを確認する |
+| Persistence failure | Applicationが成功responseを返さず、atomic rollbackされる |
+| M6 Persistence | schema / FK / UNIQUE / CHECK / migration / transaction correctnessはM6 Integration Testで継続保証する |
+
+M7の詳細test caseは `docs/application-service-design-v0.1.md` を参照する。
 
 ## 14.3 E2E / β検証
 
@@ -727,11 +873,11 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 | --- | --- | --- |
 | O-01 | 具体技術スタック | v0.1仮決定済み。Node.js 24 LTS / Next.js App Router / TypeScript / SQLite / Drizzle / Vitest / Playwright / OpenAI Responses API / npm / Git。 |
 | O-02 | 具体LLMモデル | 未決定。OpenAI Responses API + Structured Outputsを利用し、具体モデルはLLM Adapter越しに比較PoC後に選定。 |
-| O-03 | Reading Resolver実装 | Provider差し替えI/Fまで固定 |
+| O-03 | Reading Resolver実装 | M7でApplication Port + deterministic Stubを実装。real providerはReal External Adapter接続Milestoneで実装。 |
 | O-04 | Lyric Adjustment詳細 | 最大±10点枠のみ。β事例から追加 |
 | O-05 | Balanced係数/cluster cap | 0.7/0.3、同cluster最大2をβ仮説として採用 |
 | O-06 | relation taxonomy | 暫定集合を採用。実出力を見て統廃合 |
-| O-07 | 性能目標 | 候補60を初期値。LLM速度/コスト計測後にSLO設定 |
+| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
 
 # 17. 実装への分解順
 
@@ -743,9 +889,9 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 
 4. Candidate Selectorをstub候補で実装し、4/3/3と多様性をUT。
 
-5. Persistenceの論理モデルを実DBへ落とす。
+5. Persistenceの論理モデルをSQLite + Drizzleへ落とす。
 
-6. Generation / Reroll Application Serviceを結合。
+6. ReadingResolver Port / Stub、Persistence Ports、Generation / Reroll / Feedback / Session Query Application Servicesを結合し、Application Integration Testで固定。
 
 7. Backend APIを公開。
 
@@ -753,97 +899,22 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 
 9. XY詳細 + 2種類のFBを追加。
 
-10. 実LLMを接続し、固定キーワードセットでβ評価。
+10. Real LLM Adapter / Real Reading Resolverを接続し、固定キーワードセットでβ評価。
 
 ## 17.1 Codexへ渡すときの単位
 
-実装開始時は本書全体を一度に『作って』と渡すより、上記1〜10を小さなマイルストーンとして順に実装・テストさせる。特にRhyme Normalizer / Sound Scorer / Candidate Selectorは、実LLM接続前にstubデータでUT可能な状態を作る。
+実装開始時は本書全体を一度に『作って』と渡すより、上記1〜10を小さなマイルストーンとして順に実装・テストさせる。
+
+特にM7では `docs/application-service-design-v0.1.md` を詳細Source of Truthとし、Applicationからconcrete Infrastructureへ直接依存しないこと、M8以降へ進まないことを停止条件として扱う。
 
 # 18. 設計完了の判定
 
 - v0.1の主要ユースケースがモジュールとデータフローへ割り当てられている。
 - LLMと決定論的ロジックの境界が明確である。
+- ReadingResolver / LlmAdapter / PersistenceがApplication Portとして分離され、Infrastructure差し替え境界が明確である。
 - Candidate Selectorのv0.1ルール（4/3/3）が実装可能な粒度で定義されている。
 - スコア・正規化・Selector・Prompt・Modelの各バージョンを追跡できる。
-- 新規生成 / リロール / FBの論理APIと保存データが定義されている。
+- 新規生成 / リロール / Feedback / Session QueryのApplication責務と保存データが定義されている。
+- source / candidate reading failure、candidateKey reconciliation、候補不足、Persistence failureの扱いが定義されている。
 - UT/ITの責務境界が定義されている。
 - 未決定事項が実装を阻害するものと、後決め可能なものに分離されている。
-
-※追記
-### LLM Adapter
-
-Application層は具体的なLLM SDKへ直接依存しない。
-LLMとの境界はApplication Portとして定義し、Infrastructure側が実装する。
-
-```text
-Application
-    |
-    v
-LLM Adapter Port
-    ^
-    |
-Infrastructure Adapter
-```
-
-v0.1では最低限以下の2 contractを持つ。
-
-```ts
-generateCandidates(...)
-evaluateSemantics(...)
-```
-
-Candidate Generationには確定済みreading、targetCount、excludeTermsを渡せるようにする。
-生成候補にはgeneration round内で一意な `candidateKey` を持たせる。
-
-Semantic EvaluationはSound情報を受け取らず、意味・文脈軸を独立して評価する。
-Semantic結果もcandidateKeyを返し、配列順ではなくkeyで候補と対応付ける。
-
-Generation / Semanticの各結果は、実際に使用した `modelIdentifier` とprompt versionをmetadataとして保持する。
-
-M4では実LLMへ接続せず、fixture injection型のdeterministic Stubのみ実装する。
-実OpenAI Responses API接続は後続Milestoneで行う。
-
-詳細は `docs/llm-adapter-design-v0.1.md` を参照する。
-
-### Candidate Selector
-
-v0.1では、評価済みcandidate poolから単純な総合点上位10件を取らず、以下をprimary targetとする。
-
-```text
-Balanced-focused   4
-Sound-focused      3
-Semantic-focused   3
-```
-
-Balanced:
-
-```text
-minScore  = min(soundScore, semanticScore)
-meanScore = (soundScore + semanticScore) / 2
-
-balancedScore
- = 0.7 * minScore
- + 0.3 * meanScore
-```
-
-Balanced primaryでは同一 `semanticCluster` 最大2。
-
-Sound-focusedは `soundScore` のみでrankし、Semantic ScoreやsemanticClusterでは減点しない。
-
-Semantic-focusedは `semanticScore` を基本rankとし、primaryでは同一semanticCluster最大1。`primaryRelation` / `semanticCluster` の多様性をtie-breakで優先する。
-
-General Filterではsource自身、reroll excludeTerms、canonical duplicate等をhard exclusionする。reading一致だけではduplicate扱いしない。
-
-primary 4/3/3が不足した場合は、
-
-```text
-Balanced -> Sound -> Semantic -> Balanced -> ...
-```
-
-のround-robin fallbackで、1 strategy turnにつき最大1件ずつ補填する。
-
-hard exclusionはfallbackでも解除しない。semantic diversity constraintのみ必要に応じて緩和する。
-
-v0.1ではabsolute score thresholdを設けない。βデータ収集後にscore distribution、percentile、standard score等を確認して検討する。
-
-詳細は `docs/candidate-selector-design-v0.1.md` を参照する。

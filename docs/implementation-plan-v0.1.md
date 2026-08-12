@@ -87,10 +87,18 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - compatibility issue / RC dependency requirement occurs -> stop and report
 
 ### M7 - Application services
-- Generation Service
+- ReadingResolver Application Port
+- deterministic StubReadingResolver
+- Persistence Application Ports
+- Initial Generation Service
 - Reroll Service
 - Feedback Service
-- stub LLMを使ったintegration tests
+- Session Query Service
+- Application error contract
+- Application Integration Tests
+- no new npm dependency
+- no M8 API / M9 UI / real adapters
+- stop conditionsをapplication-service-design参照にする
 
 ### M8 - Backend API
 - generation
