@@ -1,6 +1,8 @@
-# Backend API 詳細設計 v0.1
+# Backend API 詳細設計 v0.1.1
 
 更新日: 2026-08-12
+
+> M9追補: reload後のFeedback表示復元のため、public `ApiCandidate` にcurrent Feedback stateを追加した。endpoint / write API / DB schemaは変更しない。
 
 ## 1. 位置づけ
 
@@ -600,10 +602,17 @@ type ApiCandidate = {
     fallbackStrategy?: "balanced" | "sound" | "semantic";
     rank: number;
   };
+
+  feedback: {
+    candidate: "like" | "dislike" | null;
+    soundScore: "low" | "valid" | "high" | null;
+  };
 };
 ```
 
 `rank` はresponse candidate orderに対応する1-based value。
+
+`feedback` はcurrent-state read modelである。Feedback履歴は返さない。Initial Generation / Reroll直後の新規candidateは `candidate=null` / `soundScore=null`、Session QueryではDBのcurrent Feedbackを返す。
 
 Browserへ以下は原則返さない。
 
@@ -647,7 +656,17 @@ roundNumber ascending
 candidate selection rank ascending
 ```
 
-Query時に再計算を行わない。
+Session Queryでは各selected candidateのcurrent Feedback stateも返す。
+
+```text
+feedback.candidate:
+  like | dislike | null
+
+feedback.soundScore:
+  low | valid | high | null
+```
+
+score / semantic / selection snapshotは再計算せず、Feedbackのみcurrent-state tableの現在値を反映する。
 
 ---
 
@@ -965,6 +984,7 @@ M7のSound / Selector / transaction testをM8で重複網羅しない。
 - malformed JSON -> 400
 - wrong Content-Type -> 415
 - generated candidate response mapping
+- Generation / Reroll直後のcandidate feedbackは `null / null`
 - internal candidateKey / raw snapshotがresponseへ出ない
 - `Cache-Control: no-store`
 
@@ -982,6 +1002,10 @@ M7のSound / Selector / transaction testをM8で重複網羅しない。
 - valid session -> 200
 - orderingをApplication outputから維持
 - selected candidate DTOのみ
+- Feedback rowなし -> `candidate=null` / `soundScore=null`
+- saved Like / Dislike current stateを返す
+- saved Sound Feedback current stateを返す
+- Feedback update後のlatest current stateを返す
 - invalid UUID -> 400
 - not found -> 404
 - no-store header
@@ -1062,9 +1086,11 @@ M9でBrowserからBackend APIを利用する際に主要flowをE2E化する。
 - server userId
 - provider secret / API key
 - internal error cause
-- current Feedback state in Session Query
+- Feedback history
 
-これらが必要になった場合は、用途を確認してApplication/API contractを明示的に拡張する。
+current Feedback stateはM9 read-contract extensionとしてSession Query / ApiCandidateへ追加する。
+
+それ以外が必要になった場合は、用途を確認してApplication/API contractを明示的に拡張する。
 
 ---
 
@@ -1074,7 +1100,6 @@ M9でBrowserからBackend APIを利用する際に主要flowをE2E化する。
 
 - M7 Application contract変更が必要
 - DB schema / migration変更が必要
-- Session QueryへFeedback current state追加が必須
 - authenticationが必須
 - public tester accessをM8でsupportする必要がある
 - CORS許可が必要
@@ -1140,3 +1165,42 @@ StubReadingResolver -> Real ReadingResolver
 ```
 
 を差し替え、β評価へ進む。
+
+---
+
+## 38. M9 Feedback read-contract extension
+
+M9のUI要件として、reload後もDB current Feedbackと画面の選択状態を一致させる。
+
+既存endpointは変更しない。
+
+```text
+POST /api/generations
+POST /api/sessions/{sessionId}/reroll
+GET  /api/sessions/{sessionId}
+POST /api/feedback/candidate
+POST /api/feedback/sound-score
+```
+
+変更するpublic response contractは `ApiCandidate.feedback` の追加のみ。
+
+```ts
+feedback: {
+  candidate: "like" | "dislike" | null;
+  soundScore: "low" | "valid" | "high" | null;
+}
+```
+
+Generation / Reroll response:
+- 新規CandidateResultなので `null / null`
+
+Session GET:
+- current Feedback tableから現在値を返す
+- rowなしは `null`
+- historyは返さない
+
+M9ではBrowserからserver-only DTO moduleをimportしないため、public DTO型を `src/contracts/api/` 等のneutral layerへ移動・再exportしてよい。
+
+server Zod schema、identity、HTTP status、error envelope、same-origin policy、no-store policyは変更しない。
+
+DB schema / migration変更は行わない。

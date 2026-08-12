@@ -1,6 +1,8 @@
-# Application Service 詳細設計 v0.1
+# Application Service 詳細設計 v0.1.1
 
 更新日: 2026-08-12
+
+> M9追補: Session Queryでcurrent Feedback stateを返し、reload後のUI状態をDBと一致させるread contractを追加した。DB schema / Feedback write policyは変更しない。
 
 ## 1. 位置づけ
 
@@ -256,6 +258,14 @@ type GenerateInitialRoundInput = {
   sourceSurface: string;
 };
 
+type CandidateFeedbackValue = "like" | "dislike";
+type SoundScoreFeedbackValue = "low" | "valid" | "high";
+
+type CandidateFeedbackState = {
+  candidate: CandidateFeedbackValue | null;
+  soundScore: SoundScoreFeedbackValue | null;
+};
+
 type GeneratedCandidateView = {
   candidateResultId: string;
   candidateKey: CandidateKey;
@@ -264,6 +274,7 @@ type GeneratedCandidateView = {
   sound: SoundScoreResult;
   semantic: SemanticResult;
   selection: SelectedCandidate;
+  feedback: CandidateFeedbackState;
 };
 
 type GeneratedRoundView = {
@@ -287,6 +298,8 @@ interface GenerationService {
 Application outputではUI / Feedbackが必要とするselected candidateのみ返す。
 
 unselected evaluated candidateはDBへ保存するが、通常のApplication responseには含めない。
+
+Initial Generation / Reroll直後の新規CandidateResultはfeedback未登録のため、`feedback.candidate` / `feedback.soundScore` はともに `null` とする。Session QueryではPersistenceからcurrent stateを復元する。
 
 ---
 
@@ -690,7 +703,21 @@ priorRounds:
   selected candidates in selectionRank order
 ```
 
-Infrastructure rowを返さない。
+`PersistedSessionView` は通常表示用のselected candidate snapshotに加えて、各CandidateResultのcurrent Feedback stateを含む。
+
+概念:
+
+```text
+selected candidate:
+  persisted score / semantic / selection snapshot
+  feedback:
+    candidate: like | dislike | null
+    soundScore: low | valid | high | null
+```
+
+Infrastructureは `candidate_feedback` / `sound_score_feedback` をcandidate_result_id単位で参照し、rowが存在しない場合は `null` として返す。
+
+Feedback履歴は返さない。Infrastructure rowをApplicationへ返さない。
 
 ### 20.4 FeedbackPersistencePort
 
@@ -970,13 +997,23 @@ type SessionView = {
 
 unselected candidate poolは分析用Persistence dataであり、通常UI responseへ含めない。
 
+各selected candidateにはcurrent Feedback stateを付与する。
+
+```text
+feedback.candidate:
+  like | dislike | null
+
+feedback.soundScore:
+  low | valid | high | null
+```
+
+score / semantic / selectionは「当時のsnapshot」を返す一方、Feedbackはcurrent-state tableの現在値を返す。これはFeedbackが履歴ではなく現在値として設計されているためである。
+
 Roundは `roundNumber` ascending。
 
 Candidateは `selectionRank` ascending。
 
 Query時にRhyme Normalizer、Sound Scorer、Semantic Evaluation、Candidate Selectorを再実行しない。
-
-DBに保存された「当時のsnapshot」を返す。
 
 Sessionが存在しない、または別User所有の場合は `SESSION_NOT_FOUND`。
 
@@ -1244,11 +1281,16 @@ unselected candidateは含めない。
 
 ### 36.22 Session Query
 
-- persisted snapshotを返す
+- persisted score / semantic / selection snapshotを返す
 - roundsはroundNumber順
 - candidatesはselectionRank順
 - selected candidatesのみ
 - Scorer / Selectorを再実行しない
+- Feedback rowなしは `candidate=null` / `soundScore=null`
+- Like保存後Queryで `like`
+- Like -> Dislike更新後Queryで `dislike`
+- Sound `low` -> `valid` 更新後Queryで `valid`
+- Candidate Feedback / Sound Feedbackを独立してcurrent stateとして返す
 
 ### 36.23 Candidate Feedback
 
@@ -1440,7 +1482,7 @@ M7は既存TypeScript / Domain / Persistence / Vitestで実装可能である。
 16. Session内でRoundごとにcurrent config versionを利用できる。
 17. PersistenceからcandidateResultId mappingを受け取れる。
 18. Feedback current-stateをApplication経由で保存できる。
-19. Session Queryが保存済みsnapshotを再計算せず返す。
+19. Session Queryが保存済みsnapshotを再計算せず返し、current Feedback stateをcandidateごとに復元する。
 20. M7 Integration Testが成功する。
 21. 新しいnpm dependencyを追加しない。
 22. M8以降へ進まない。
@@ -1478,3 +1520,36 @@ Real External Adapters
 ```
 
 へ進む。
+
+---
+
+## 45. M9 read-contract extension
+
+M9でのUI要件として、reload後もDBのcurrent Feedbackと画面表示を一致させることを採用した。
+
+このためM9実装時に、本書のSession Query read contractを次の範囲だけ拡張する。
+
+```text
+GeneratedCandidateView.feedback
+SessionQueryPort / PersistedSessionViewのfeedback read
+SessionQueryServiceのfeedback projection
+Application Integration Test
+```
+
+Initial Generation / Reroll直後は新しいCandidateResultにFeedback rowがないため `null / null`。
+
+Session QueryではM6の既存Feedback current-state tableから値を取得する。
+
+変更しないもの:
+
+```text
+DB schema
+Feedback table PK
+Feedback upsert semantics
+Feedback history方針
+user ownership
+CandidateResult identity
+Generation / Reroll orchestration
+```
+
+この追補はM9のWeb UIを成立させるためのread-model拡張であり、M7のDomain / orchestration意味を変更しない。

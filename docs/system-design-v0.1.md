@@ -1,4 +1,4 @@
-# 歌詞作成補助ツール システム設計書 v0.1.5 β
+# 歌詞作成補助ツール システム設計書 v0.1.6 β
 
 > v0.1の実装設計のSource of Truth。技術スタックはβ向け仮決定であり、製品挙動を変えない実装詳細はDecision Logを更新した上で変更可能。
 
@@ -742,6 +742,8 @@ v0.1ではBrowserから `userId` を受け取らない。Backend側の `FixedBet
 
 通常API responseはselected candidateに必要な表示情報だけを返し、raw Generation / Semantic snapshot、unselected pool、internal `candidateKey`、DB row、server userId、内部error causeを返さない。
 
+M9のreload復元要件により、selected candidateのpublic DTOにはcurrent Feedback state（Candidate Like/Dislike、Sound low/valid/high、未登録はnull）を含める。Feedback historyは返さない。
+
 API responseは `Cache-Control: no-store` とし、v0.1ではcross-origin APIをsupportせずCORS許可headerを追加しない。
 
 Application ErrorはHTTP境界で以下の意味へ縮約する。
@@ -761,55 +763,147 @@ M8時点ではserver compositionも `StubReadingResolver` / `StubLlmAdapter` を
 
 詳細なrequest / response schema、identity、error mapping、test boundaryは `docs/backend-api-design-v0.1.md` を参照する。
 
-# 10. UI状態設計
+# 10. Web UI設計
+
+M9ではUIそのものもβ検証対象とし、最小構成でBrowserから主要flowを操作可能にする。
+
+Route:
+
+```text
+/
+  keyword入力
+
+/sessions/{sessionId}
+  latest Round結果
+  Candidate Like / Dislike
+  reroll
+
+/sessions/{sessionId}/detail
+  latest Round XY Scatter Plot
+  Sound Score Feedback
+```
+
+Page / Layoutは可能な限りServer Componentのまま保ち、Browser fetch / state / eventが必要な箇所だけClient Componentとする。Clientから `src/server` / `src/infrastructure` をimportしない。
+
+public API DTO型はserver/client双方から参照可能なneutral contract layerへ置く。
 
 ## 10.1 初期画面
 
 ```text
-[ App Title ]
+        ことばを探す
 
-[ keyword input                         ]
-                 Enter / Generate
+[ キーワード                         ]
+               [ 探す ]
 ```
 
-説明や高度設定はv0.1では表示しない。
+説明、高度設定、Sound/Semantic重みsliderはv0.1では表示しない。
+
+Generation中はformをpendingにして二重submitを防ぎ、失敗時は入力を維持する。
+
+成功後はprogrammatic navigationで同Sessionの結果URLへ移動する。
 
 ## 10.2 結果画面
+
+最新Roundのみを通常表示する。
 
 ```text
 keyword
 
-candidate 1     candidate 2
-candidate 3     candidate 4
-...
-candidate 9     candidate 10
+[ もう一度探す ]             [ 詳細を見る ]
 
-[ reroll ]                     [ detail ]
+candidate card
+  surface
+  reading
+  [ Like ] [ Dislike ]
+
+...
 ```
 
-候補のselectionCategoryは通常画面では表示しない。ユーザーはまず候補を『言葉』として見る。
+候補はselectionRank順。0〜10件を許容する。
+
+Sound / Semantic score、selectionCategory等は通常画面で前面表示しない。
+
+Reroll中は現在の有効な結果を残し、buttonのみpendingにする。成功したnew Roundを同一Sessionのlatestとして表示する。
+
+Candidate Feedbackはcurrent stateとして表示し、同じ値の再押下はno-op、反対値で更新する。neutralへ戻すUIはv0.1では作らない。
 
 ## 10.3 詳細画面
 
-```text
-Semantic 100
-   |
-   |      *       *   Balanced
-   |  *
-   |
-   |              *   Sound
-   | *
-   +-------------------------- Sound 100
-  0
+最新Roundのselected candidateをXY Scatter Plotへ表示する。
 
-Hover / Click:
-- word
-- sound score + short reason
-- semantic score + short reason
-- β sound-score feedback
+```text
+x = Sound finalScore
+y = Semantic score
+
+range = 0..100 fixed
 ```
 
-XY散布図は結果説明に加え、Candidate Selectorが3方向へ適切に候補を散らせているか確認するβ検証UIとしても利用する。
+SVG + CSSで実装し、chart libraryは追加しない。
+
+hoverだけに依存せず、
+
+```text
+hover
+focus
+tap / click
+candidate legend button
+```
+
+からactive candidateを選択できる。
+
+visual jitterは使わず、同座標candidateはlegendから個別に選べる。
+
+active candidateにはSound / Semantic詳細、Semantic reason、selection metadata、Sound Score Feedbackを表示する。
+
+Sound Feedback label:
+
+```text
+低すぎる
+妥当
+高すぎる
+```
+
+## 10.4 reload / canonical state
+
+Session / Detailのreload時は、
+
+```text
+GET /api/sessions/{sessionId}
+```
+
+から保存済み状態を復元する。
+
+score / semantic / selectionは当時のsnapshot。
+
+FeedbackはDB current state。
+
+```text
+DB Like
+-> reload
+-> Like selected表示
+
+DB sound = valid
+-> detail reload
+-> 妥当 selected表示
+```
+
+Browser localStorageをFeedbackのsource of truthにしない。
+
+## 10.5 UI技術方針
+
+```text
+React 19
+Next.js App Router
+CSS Modules / Global CSS
+native semantic HTML
+Playwright
+```
+
+新しいchart / UI / state management / animation libraryは追加しない。
+
+デザイン方向はneutral / quiet / editorialとし、候補語を主役にする。細かな色・余白・copyはβ feedbackを見て変更可能とする。
+
+詳細は `docs/web-ui-design-v0.1.md` を参照する。
 
 # 11. βフィードバック設計
 
@@ -819,6 +913,22 @@ XY散布図は結果説明に加え、Candidate Selectorが3方向へ適切に�
 | Sound Score Feedback | 語感点は低すぎる/妥当/高すぎるか | ScoringConfig調整 |
 
 2種類のFBは意味が異なるため、同一フラグへ統合しない。β分析ではscoringConfigVersion単位で集計できるようにする。
+
+FeedbackはM6方針どおりcurrent state。
+
+```text
+Candidate:
+  null -> like / dislike
+  like <-> dislike
+
+Sound:
+  null -> low / valid / high
+  low / valid / high間で更新
+```
+
+v0.1ではFeedback historyとneutralへ戻すdelete操作を作らない。
+
+M9ではSession Queryがcurrent stateを読み取り、reload後もDBと画面の選択状態を一致させる。Feedback table / schemaは変更しない。
 
 # 12. 設定・バージョニング
 
@@ -890,17 +1000,32 @@ LLM latency / failure / token usage / performance timing等のoperation-level観
 | candidateKey reconciliation | Generation duplicate、Semantic unknown / duplicate / missing keyを安全に処理する |
 | Semantic independence | Semantic requestへreading / rhyme / Sound Scoreを渡さない |
 | Reroll | stored sourceReading再利用、current Normalizer / Config、過去selected由来excludeTerms、同一SessionへのRound追加 |
-| Session Query | 保存済みsnapshotをroundNumber / selectionRank順で返し、Scorer / Selectorを再実行しない |
+| Session Query | 保存済みsnapshotをroundNumber / selectionRank順で返し、Scorer / Selectorを再実行しない。selected candidateへcurrent Feedback stateを付与する |
 | Feedback | Candidate Like/DislikeとSound Feedbackを別系統でcurrent-state保存し、user ownershipを確認する |
 | Persistence failure | Applicationが成功responseを返さず、atomic rollbackされる |
 | M6 Persistence | schema / FK / UNIQUE / CHECK / migration / transaction correctnessはM6 Integration Testで継続保証する |
-| Backend API boundary | JSON/Zod validation、固定beta user注入、HTTP status/error mapping、DTO masking、Route Handler wiringを確認する |
+| Backend API boundary | JSON/Zod validation、固定beta user注入、HTTP status/error mapping、DTO masking、Feedback current-state DTO、Route Handler wiringを確認する |
+| Web UI | Browser API client、latest Round表示、Feedback state、Scatter Plot interaction、responsive/accessibilityを確認する |
 
 M7のApplication test詳細は `docs/application-service-design-v0.1.md`、M8のAPI test詳細は `docs/backend-api-design-v0.1.md` を参照する。
 
 ## 14.3 E2E / β検証
 
-E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケースで確認する。LLM品質そのものは決定論的UTに含めず、別途固定キーワードセットを用いたβ評価として扱う。
+M9ではPlaywrightでBrowser主要flowを確認する。
+
+```text
+Home -> Generation -> Session Result
+Candidate Like / Dislike -> reload復元
+Detail -> Scatter interaction
+Sound Feedback -> reload復元
+Reroll -> same Session new latest Round
+direct reload / not found
+keyboard操作
+```
+
+E2Eは専用temporary SQLite DBと固定beta userを使用し、production/local DBを汚さない。
+
+LLM品質そのものは決定論的E2Eに含めず、M10で固定キーワードセットを用いたβ評価として扱う。
 
 # 15. 設計書の粒度（今回の進め方）
 
@@ -926,8 +1051,9 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 | O-04 | Lyric Adjustment詳細 | 最大±10点枠のみ。β事例から追加 |
 | O-05 | Balanced係数/cluster cap | 0.7/0.3、同cluster最大2をβ仮説として採用 |
 | O-06 | relation taxonomy | 暫定集合を採用。実出力を見て統廃合 |
-| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7/M8ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
+| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7/M8/M9ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
 | O-08 | User authentication | M8ではserver-side固定beta userを使用。authenticationではない。tester/public公開前にAuthenticatedUserResolverへ差し替えて設計する。 |
+| O-09 | UI visual polish | M9でminimal UIを実装するが、copy / spacing / visual detailはβ feedback対象。v0.1で固定ブランド・design systemを作り込まない。 |
 
 # 17. 実装への分解順
 
@@ -945,19 +1071,19 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 
 7. Next.js Route Handlers + ZodでBackend APIを公開し、server-side固定beta user、HTTP error mapping、API DTO境界を実装。
 
-8. 最小Web UI（初期→結果）を接続。
+8. Web UI（初期→結果→詳細、Reroll、2種類のFeedback、reload復元）を接続し、Playwright E2EでBrowser flowを固定。
 
-9. XY詳細 + 2種類のFBを追加。
-
-10. Real LLM Adapter / Real Reading Resolverを接続し、固定キーワードセットでβ評価。
+9. Real LLM Adapter / Real Reading Resolverを接続し、固定キーワードセットでβ評価。
 
 ## 17.1 Codexへ渡すときの単位
 
-実装開始時は本書全体を一度に『作って』と渡すより、上記1〜10を小さなマイルストーンとして順に実装・テストさせる。
+実装開始時は本書全体を一度に『作って』と渡すより、上記1〜9を小さなマイルストーンとして順に実装・テストさせる。
 
 M7では `docs/application-service-design-v0.1.md` を詳細Source of Truthとする。
 
 M8では `docs/backend-api-design-v0.1.md` を詳細Source of Truthとし、BrowserからuserIdを受け取らないこと、Route HandlerへDomain/Persistence ruleを埋め込まないこと、DB schemaを変更しないこと、M9以降へ進まないことを停止条件として扱う。
+
+M9では `docs/web-ui-design-v0.1.md` を詳細Source of Truthとする。reload後のFeedback current-state復元のためM7/M8 read contractを最小拡張するが、DB schemaを変更しないこと、新しいUI/chart/state dependencyを追加しないこと、M10へ進まないことを停止条件として扱う。
 
 # 18. 設計完了の判定
 
@@ -970,4 +1096,5 @@ M8では `docs/backend-api-design-v0.1.md` を詳細Source of Truthとし、Brow
 - source / candidate reading failure、candidateKey reconciliation、候補不足、Persistence failureの扱いが定義されている。
 - UT/ITの責務境界が定義されている。
 - Backend APIのvalidation、server-side beta user identity、HTTP error mapping、公開DTO境界が定義されている。
+- Web UIのroute、Browser state、Feedback reload復元、Scatter Plot、accessibility、E2E境界が定義されている。
 - 未決定事項が実装を阻害するものと、後決め可能なものに分離されている。

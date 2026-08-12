@@ -119,14 +119,50 @@ M8の固定beta userはauthenticationではない。
 M8時点のdeployment assumptionはowner-only / localまたはprivate利用とし、tester/public公開前にAuthenticatedUserResolverへの差し替えを別途設計する。
 
 ### M9 - Web UI
-- initial screen
-- result screen
-- detail XY scatter plot
-- reroll
-- candidate feedback
-- sound-score feedback
-- M8 Backend APIとの接続
-- Browser E2E
+- Home `/`
+  - keyword input
+  - generation pending / error
+  - Generation successでSession URLへnavigation
+- Session Result `/sessions/[sessionId]`
+  - Session APIからdirect reload復元
+  - latest Roundのみ通常表示
+  - selected candidate 0〜10件
+  - Candidate Like / Dislike
+  - reroll
+  - reroll中も旧結果を維持
+- Session Detail `/sessions/[sessionId]/detail`
+  - x=Sound / y=Semantic
+  - 0〜100固定Scatter Plot
+  - SVG + CSS
+  - hover / focus / tap + candidate legend
+  - active candidate詳細
+  - Sound Score Feedback
+- M9 feedback read-contract extension
+  - M7 Session Queryへcurrent Candidate / Sound Feedback stateを追加
+  - M8 `ApiCandidate.feedback`へcurrent stateを追加
+  - Generation / Reroll直後は `null / null`
+  - Session reloadではDB current stateを復元
+  - DB schema / Feedback write policyは変更しない
+- Browser API client
+  - same-origin M8 APIのみ
+  - BrowserからuserIdを送信しない
+  - public API errorをuser-facing messageへ変換
+- shared public API contract typesをneutral layerへ配置
+- responsive / keyboard / aria-live / aria-pressed
+- CSS Modules / Global CSS
+- new chart / UI / state management dependencyなし
+- Playwright E2E
+  - dedicated temporary SQLite
+  - fixed beta user
+  - Home -> Result
+  - Candidate Feedback -> reload復元
+  - Detail / Scatter interaction
+  - Sound Feedback -> reload復元
+  - Reroll
+  - direct reload / error
+- M10 real adaptersには進まない
+
+詳細: `docs/web-ui-design-v0.1.md`
 
 ### M10 - Real External Adapters / β Evaluation
 - Real LLM Adapter
@@ -151,12 +187,34 @@ M8では以下に該当した場合、独自判断でscopeを広げず停止し�
 
 - M7 Application contract変更が必要
 - DB schema / migration変更が必要
-- Session QueryへFeedback current state追加が必須
 - authentication / public tester accessが必要
 - CORS許可やrate limitingが必要
 - Zod以外の新direct dependencyが必要
 - real LLM / real Reading Resolverが必要
-- M9 UI仕様を先に確定しないとAPI contractを作れない
 - Product上の新しい入力制限が必要
 
 M8完了後は、docs / tests / implementation reportを確認してからM9へ進む。
+
+M9で、reload後のFeedback表示復元に必要なM7/M8 read-contract extensionは承認済み。以後はM9詳細設計を優先する。
+
+## M9 implementation stop conditions
+
+M9では以下に該当した場合、独自判断でscopeを広げず停止して報告する。
+
+- Feedback current-state read contract拡張にDB schema変更が必要
+- M7 Session Queryからcurrent Feedbackを安全に返せない
+- M8 public DTO変更が既存endpoint semanticsを壊す
+- Feedbackをneutralへ戻す新endpointが必要
+- past Round閲覧UIが必要
+- new API endpointが必要
+- new direct dependencyが必要
+- chart / UI / state management libraryが必要
+- real LLM / real Reading Resolverが必要
+- authentication / public tester access対応が必要
+- M10のProduct評価scopeへ踏み込む必要がある
+
+M9では `docs/web-ui-design-v0.1.md` を詳細Source of Truthとする。
+
+M9のreload Feedback復元は承認済みcross-layer extensionであり、M7/M8のread model / public DTOを最小変更してよい。ただしPersistence schema / migration / Feedback current-state write semanticsは変更しない。
+
+M9完了後はdocs / tests / Browser E2E / implementation reportを確認してからM10へ進む。
