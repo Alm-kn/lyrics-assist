@@ -9,12 +9,13 @@ import type { BackendApiDependencies } from "./types";
 
 export async function handleCandidateFeedback(
   request: Request,
-  dependencies: BackendApiDependencies = getServerComposition(),
+  dependencies?: BackendApiDependencies,
 ): Promise<Response> {
   try {
+    const resolvedDependencies = dependencies ?? getServerComposition();
     const body = await parseJsonBody(request, candidateFeedbackRequestSchema);
-    const userId = dependencies.betaUserResolver.resolveUserId();
-    await dependencies.feedbackService.submitCandidateFeedback({
+    const userId = resolvedDependencies.betaUserResolver.resolveUserId();
+    await resolvedDependencies.feedbackService.submitCandidateFeedback({
       userId,
       candidateResultId: body.candidateResultId,
       value: body.value,
@@ -27,15 +28,16 @@ export async function handleCandidateFeedback(
 
 export async function handleSoundScoreFeedback(
   request: Request,
-  dependencies: BackendApiDependencies = getServerComposition(),
+  dependencies?: BackendApiDependencies,
 ): Promise<Response> {
   try {
+    const resolvedDependencies = dependencies ?? getServerComposition();
     const body = await parseJsonBody(
       request,
       soundScoreFeedbackRequestSchema,
     );
-    const userId = dependencies.betaUserResolver.resolveUserId();
-    await dependencies.feedbackService.submitSoundScoreFeedback({
+    const userId = resolvedDependencies.betaUserResolver.resolveUserId();
+    await resolvedDependencies.feedbackService.submitSoundScoreFeedback({
       userId,
       candidateResultId: body.candidateResultId,
       value: body.value,
@@ -45,4 +47,3 @@ export async function handleSoundScoreFeedback(
     return mapApiError(error);
   }
 }
-

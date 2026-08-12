@@ -17,6 +17,8 @@ import type {
   GenerateCandidatesResult,
   LlmAdapter,
   ReadingResolver,
+  ResolveReadingBatchRequest,
+  ResolveReadingBatchResult,
   ResolveReadingRequest,
   RoundPersistencePort,
 } from "../../src/application";
@@ -122,7 +124,9 @@ class RecordingLlmAdapter implements LlmAdapter {
 
 class RecordingReadingResolver implements ReadingResolver {
   readonly requests: ResolveReadingRequest[] = [];
+  readonly batchRequests: ResolveReadingBatchRequest[] = [];
   failingSurface?: string;
+  batchFixture?: ResolveReadingBatchResult;
 
   constructor(private readonly delegate: ReadingResolver) {}
 
@@ -132,6 +136,21 @@ class RecordingReadingResolver implements ReadingResolver {
       throw new Error("reading provider failed");
     }
     return this.delegate.resolve(request);
+  }
+
+  async resolveBatch(request: ResolveReadingBatchRequest) {
+    this.batchRequests.push(request);
+    this.requests.push(
+      ...request.items.map(({ surface, readingHint }) => ({
+        surface,
+        ...(readingHint === undefined ? {} : { readingHint }),
+      })),
+    );
+    if (request.items.some((item) => item.surface === this.failingSurface)) {
+      throw new Error("reading provider failed");
+    }
+    if (this.batchFixture !== undefined) return this.batchFixture;
+    return this.delegate.resolveBatch(request);
   }
 }
 
@@ -162,12 +181,23 @@ describe("M7 Application services integration", () => {
 
     await expect(
       resolver.resolve({ surface: "光", readingHint: "wrong-hint" }),
-    ).resolves.toEqual({ status: "resolved", reading: fixture });
-    await expect(resolver.resolve({ surface: "未知" })).resolves.toEqual({
+    ).resolves.toMatchObject({ status: "resolved", reading: fixture });
+    await expect(resolver.resolve({ surface: "未知" })).resolves.toMatchObject({
       status: "unresolved",
     });
-    await expect(resolver.resolve({ surface: "未知" })).resolves.toEqual({
-      status: "unresolved",
+    await expect(
+      resolver.resolveBatch({
+        items: [
+          { requestKey: "known", surface: "光", readingHint: "wrong-hint" },
+          { requestKey: "unknown", surface: "未知" },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      results: [
+        { requestKey: "known", status: "resolved", reading: fixture },
+        { requestKey: "unknown", status: "unresolved" },
+      ],
+      metadata: { resolverIdentifier: "stub" },
     });
   });
 
@@ -203,6 +233,25 @@ describe("M7 Application services integration", () => {
     expect(loaded?.candidates).toHaveLength(3);
     expect(loaded?.generationResult).toEqual(generationResult(generated));
     expect(loaded?.semanticEvaluationResult).toEqual(semanticResult(generated));
+    expect(loaded?.candidateReadingResolutionResult).toMatchObject({
+      results: generated.map((candidate) => ({
+        requestKey: candidate.candidateKey,
+        status: "resolved",
+      })),
+      metadata: { resolverIdentifier: "stub" },
+    });
+    const storedSession = connection.db
+      .select({
+        sourceReadingResolutionJson:
+          generationSessions.sourceReadingResolutionJson,
+      })
+      .from(generationSessions)
+      .get();
+    expect(JSON.parse(storedSession!.sourceReadingResolutionJson!)).toMatchObject({
+      status: "resolved",
+      reading: { surface: "夜", reading: "よる" },
+      metadata: { resolverIdentifier: "stub" },
+    });
     expect(
       result.candidates.map((candidate) => candidate.candidateResultId),
     ).toEqual(
@@ -346,6 +395,12 @@ describe("M7 Application services integration", () => {
       surface: "風",
       readingHint: "かぜ",
     });
+    expect(resolver.batchRequests).toHaveLength(1);
+    expect(
+      loaded?.candidateReadingResolutionResult?.results.map(
+        (item) => item.requestKey,
+      ),
+    ).toEqual(["semantic-duplicate", "unresolved", "missing", "valid"]);
     expect(llm.semanticRequests[0]).toEqual({
       source: { surface: "夜" },
       candidates: [
@@ -354,6 +409,63 @@ describe("M7 Application services integration", () => {
         { candidateKey: "valid", surface: "風" },
       ],
     });
+  });
+
+  it("reconciles duplicate, missing, and unknown Reading batch keys per candidate", async () => {
+    const generated = [
+      { candidateKey: "valid", surface: "風" },
+      { candidateKey: "missing-reading", surface: "空" },
+      { candidateKey: "duplicate-reading", surface: "月" },
+    ];
+    const resolver = new RecordingReadingResolver(
+      new StubReadingResolver([reading("夜", "よる")]),
+    );
+    resolver.batchFixture = {
+      results: [
+        {
+          requestKey: "valid",
+          status: "resolved",
+          reading: reading("風", "かぜ"),
+        },
+        {
+          requestKey: "duplicate-reading",
+          status: "resolved",
+          reading: reading("月", "つき"),
+        },
+        {
+          requestKey: "duplicate-reading",
+          status: "resolved",
+          reading: reading("月", "げつ"),
+        },
+        {
+          requestKey: "unknown-reading",
+          status: "resolved",
+          reading: reading("未知", "みち"),
+        },
+      ],
+      metadata: {
+        resolverIdentifier: "fake-batch",
+        promptVersion: "reading-test-v0.1",
+        inferenceConfigVersion: "test-v0.1",
+      },
+    };
+    const llm = new RecordingLlmAdapter(
+      generationResult(generated),
+      semanticResult([{ candidateKey: "valid", surface: "風" }]),
+    );
+    const result = await new GenerationService({
+      readingResolver: resolver,
+      llmAdapter: llm,
+      roundPersistence: persistence,
+    }).generateInitialRound({ userId: "owner", sourceSurface: "夜" });
+    const loaded = new RoundRepository(connection.db).loadRound(result.roundId);
+
+    expect(llm.semanticRequests[0]?.candidates).toEqual([
+      { candidateKey: "valid", surface: "風" },
+    ]);
+    expect(loaded?.candidateReadingResolutionResult).toEqual(
+      resolver.batchFixture,
+    );
   });
 
   it("fails the whole Round for candidate Resolver, generation, or semantic system failure", async () => {
@@ -496,6 +608,11 @@ describe("M7 Application services integration", () => {
     ]);
     expect(loadedSecond?.scoringConfigVersion).toBe("sound-v0.2");
     expect(loadedSecond?.selectionConfigVersion).toBe("selection-v0.2");
+    expect(
+      loadedSecond?.candidateReadingResolutionResult?.results.map(
+        (item) => item.requestKey,
+      ),
+    ).toEqual(["ignored-exclusion", "shown-star"]);
 
     const thirdGenerated = [{ candidateKey: "shown-wind", surface: "風" }];
     llm.generationFixture = generationResult(thirdGenerated);

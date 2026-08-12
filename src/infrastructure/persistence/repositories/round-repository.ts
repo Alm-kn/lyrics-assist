@@ -6,6 +6,7 @@ import type {
   EvaluateSemanticsResult,
   GenerateCandidatesResult,
 } from "../../../application/ports/llm-adapter";
+import type { ResolveReadingBatchResult } from "../../../application";
 import type {
   ReadingResult,
   RhymeRepresentations,
@@ -14,7 +15,7 @@ import type {
   SoundScoreResult,
 } from "../../../domain";
 import type { PersistenceDatabase } from "../database";
-import { parseJsonSnapshot } from "../json";
+import { parseJsonSnapshot, serializeJsonSnapshot } from "../json";
 import { mapCompletedRoundSnapshot } from "../mappers/round-mapper";
 import {
   candidateResults,
@@ -100,6 +101,13 @@ export class RoundRepository {
           userId,
           sourceSurface: input.sourceSurface,
           sourceReading: input.sourceReading,
+          sourceReadingResolutionJson:
+            input.sourceReadingResolution === undefined
+              ? null
+              : serializeJsonSnapshot(
+                  input.sourceReadingResolution,
+                  "sourceReadingResolution",
+                ),
           createdAt: timestamp,
         })
         .run();
@@ -233,6 +241,13 @@ export class RoundRepository {
         round.generationResultJson,
         "generationResultJson",
       ),
+      candidateReadingResolutionResult:
+        round.candidateReadingResolutionResultJson === null
+          ? null
+          : parseJsonSnapshot<ResolveReadingBatchResult>(
+              round.candidateReadingResolutionResultJson,
+              "candidateReadingResolutionResultJson",
+            ),
       semanticEvaluationResult:
         parseJsonSnapshot<EvaluateSemanticsResult>(
           round.semanticEvaluationResultJson,

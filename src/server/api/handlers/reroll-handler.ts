@@ -12,17 +12,18 @@ import type { BackendApiDependencies } from "./types";
 export async function handleReroll(
   request: Request,
   params: Promise<{ readonly sessionId: string }>,
-  dependencies: BackendApiDependencies = getServerComposition(),
+  dependencies?: BackendApiDependencies,
 ): Promise<Response> {
   try {
+    const resolvedDependencies = dependencies ?? getServerComposition();
     const body = await parseJsonBody(request, rerollRequestSchema);
     void body;
     const parsedId = uuidSchema.safeParse((await params).sessionId);
     if (!parsedId.success) {
       throw new ApiBoundaryError(400, "INVALID_REQUEST", "Request is invalid.");
     }
-    const userId = dependencies.betaUserResolver.resolveUserId();
-    const result = await dependencies.rerollService.reroll({
+    const userId = resolvedDependencies.betaUserResolver.resolveUserId();
+    const result = await resolvedDependencies.rerollService.reroll({
       userId,
       sessionId: parsedId.data,
     });
@@ -31,4 +32,3 @@ export async function handleReroll(
     return mapApiError(error);
   }
 }
-

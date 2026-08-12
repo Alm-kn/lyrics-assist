@@ -326,6 +326,10 @@ export function mapCompletedRoundSnapshot(
         snapshot.generationResult,
         "generationResult",
       ),
+      candidateReadingResolutionResultJson: serializeJsonSnapshot(
+        snapshot.candidateReadingResolutionResult,
+        "candidateReadingResolutionResult",
+      ),
       semanticEvaluationResultJson: serializeJsonSnapshot(
         snapshot.semanticEvaluationResult,
         "semanticEvaluationResult",

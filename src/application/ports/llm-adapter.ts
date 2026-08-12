@@ -27,7 +27,21 @@ export interface GeneratedCandidate {
   readonly readingHint?: string;
 }
 
-export interface CandidateGenerationMetadata {
+export interface ProviderUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
+export interface ProviderCallMetadata {
+  readonly provider?: string;
+  readonly providerResponseId?: string;
+  readonly inferenceConfigVersion?: string;
+  readonly durationMs?: number;
+  readonly usage?: ProviderUsage;
+}
+
+export interface CandidateGenerationMetadata extends ProviderCallMetadata {
   readonly modelIdentifier: ModelIdentifier;
   readonly generationPromptVersion: GenerationPromptVersion;
 }
@@ -60,7 +74,7 @@ export interface SemanticEvaluationItem {
   readonly semanticCluster: SemanticResult["semanticCluster"];
 }
 
-export interface SemanticEvaluationMetadata {
+export interface SemanticEvaluationMetadata extends ProviderCallMetadata {
   readonly modelIdentifier: ModelIdentifier;
   readonly semanticPromptVersion: SemanticPromptVersion;
 }

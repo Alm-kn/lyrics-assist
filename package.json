@@ -18,11 +18,13 @@
     "test:e2e": "node tests/e2e/run.mjs",
     "test:e2e:ui": "node tests/e2e/run.mjs --ui",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "test:openai-smoke": "vitest run --config vitest.openai-smoke.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "1.0.0-rc.4",
     "next": "^16.3.0",
+    "openai": "7.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "4.4.3"

@@ -1,4 +1,6 @@
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 
 import { asc, count, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -161,6 +163,24 @@ function makeRound(
     generationTargetCount: Math.max(candidateCount, 1),
     excludeTerms: roundNumber === 1 ? [] : ["既出語"],
     generationResult,
+    candidateReadingResolutionResult: {
+      results: generatedCandidates.map((generated) => ({
+        requestKey: generated.candidateKey,
+        status: "resolved" as const,
+        reading: {
+          surface: generated.surface,
+          reading: "はな",
+          morae: ["は", "な"],
+          source: "manual" as const,
+        },
+      })),
+      metadata: {
+        resolverIdentifier: "stub",
+        promptVersion: "reading-stub-v0.1",
+        inferenceConfigVersion: "stub-v0.1",
+        durationMs: 0,
+      },
+    },
     semanticEvaluationResult,
     sourceRhyme: normalizeRhyme("よる"),
     scoringConfig: DEFAULT_SOUND_SCORING_CONFIG,
@@ -242,6 +262,14 @@ describe("M6 Persistence integration", () => {
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'candidate_results'",
       )
       .get()?.sql;
+    const sessionColumns = connection.client
+      .prepare("PRAGMA table_info('generation_sessions')")
+      .all()
+      .map((column) => column.name);
+    const roundColumns = connection.client
+      .prepare("PRAGMA table_info('generation_rounds')")
+      .all()
+      .map((column) => column.name);
 
     expect(tables).toEqual([
       "candidate_feedback",
@@ -267,6 +295,74 @@ describe("M6 Persistence integration", () => {
     expect(connection.client.prepare("PRAGMA foreign_keys").get()).toEqual({
       foreign_keys: 1,
     });
+    expect(sessionColumns).toContain("source_reading_resolution_json");
+    expect(roundColumns).toContain(
+      "candidate_reading_resolution_result_json",
+    );
+  });
+
+  it("migrates legacy rows additively and leaves their provenance nullable", () => {
+    const legacy = new DatabaseSync(":memory:");
+    const readMigration = (folder: string) =>
+      readFileSync(resolve("drizzle", folder, "migration.sql"), "utf8").replaceAll(
+        "--> statement-breakpoint",
+        "\n",
+      );
+    try {
+      legacy.exec(readMigration("20260811180734_outgoing_christian_walker"));
+      legacy.exec(`
+        PRAGMA foreign_keys = ON;
+        INSERT INTO users (id, created_at) VALUES ('legacy-user', 1);
+        INSERT INTO scoring_configs (version, config_json, created_at)
+          VALUES ('sound-v0.1', '{}', 1);
+        INSERT INTO selection_configs (version, config_json, created_at)
+          VALUES ('selection-v0.1', '{}', 1);
+        INSERT INTO generation_sessions
+          (id, user_id, source_surface, source_reading, created_at)
+          VALUES ('legacy-session', 'legacy-user', '夜', 'よる', 1);
+        INSERT INTO generation_rounds (
+          id, session_id, round_number, generation_target_count,
+          exclude_terms_json, generation_model_identifier,
+          generation_prompt_version, generation_result_json,
+          semantic_evaluation_result_json, normalizer_version,
+          source_rhyme_json, scoring_config_version,
+          selection_config_version, selection_result_json, created_at
+        ) VALUES (
+          'legacy-round', 'legacy-session', 1, 1,
+          '[]', 'stub', 'generation-v0.1', '{}', '{}', 'rhyme-v0.1',
+          '{}', 'sound-v0.1', 'selection-v0.1', '{}', 1
+        );
+      `);
+
+      legacy.exec(readMigration("20260812090711_marvelous_the_hood"));
+
+      expect(
+        legacy
+          .prepare(
+            "SELECT source_surface, source_reading_resolution_json FROM generation_sessions WHERE id = ?",
+          )
+          .get("legacy-session"),
+      ).toEqual({
+        source_surface: "夜",
+        source_reading_resolution_json: null,
+      });
+      expect(
+        legacy
+          .prepare(
+            "SELECT round_number, candidate_reading_resolution_result_json FROM generation_rounds WHERE id = ?",
+          )
+          .get("legacy-round"),
+      ).toEqual({
+        round_number: 1,
+        candidate_reading_resolution_result_json: null,
+      });
+      expect(legacy.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(legacy.prepare("PRAGMA integrity_check").get()).toEqual({
+        integrity_check: "ok",
+      });
+    } finally {
+      legacy.close();
+    }
   });
 
   it("rejects missing parents and restricts deletion of referenced parents", () => {

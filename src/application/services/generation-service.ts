@@ -105,6 +105,7 @@ export class GenerationService {
         userId: input.userId,
         sourceSurface: input.sourceSurface,
         sourceReading,
+        sourceReadingResolution: resolution,
         round,
       });
     } catch (cause) {

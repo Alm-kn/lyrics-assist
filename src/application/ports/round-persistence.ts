@@ -12,6 +12,10 @@ import type {
   EvaluateSemanticsResult,
   GenerateCandidatesResult,
 } from "./llm-adapter";
+import type {
+  ReadingResolution,
+  ResolveReadingBatchResult,
+} from "./reading-resolver";
 
 export interface CompletedCandidateSnapshot {
   readonly candidateKey: CandidateKey;
@@ -28,6 +32,7 @@ export interface CompletedRoundSnapshot {
   readonly generationTargetCount: number;
   readonly excludeTerms: readonly string[];
   readonly generationResult: GenerateCandidatesResult;
+  readonly candidateReadingResolutionResult: ResolveReadingBatchResult;
   readonly semanticEvaluationResult: EvaluateSemanticsResult;
   readonly sourceRhyme: RhymeRepresentations;
   readonly scoringConfig: SoundScoringConfig;
@@ -41,6 +46,7 @@ export interface CompletedInitialRoundSnapshot {
   readonly userId: string;
   readonly sourceSurface: string;
   readonly sourceReading: string;
+  readonly sourceReadingResolution: ReadingResolution;
   readonly round: CompletedRoundSnapshot;
 }
 
@@ -77,4 +83,3 @@ export interface RoundPersistencePort {
     input: CompletedRerollRoundSnapshot,
   ): Promise<PersistedRoundReferences>;
 }
-

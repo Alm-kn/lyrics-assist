@@ -8,7 +8,11 @@ import type {
   SemanticResult,
   SoundScoreResult,
 } from "../../domain";
-import type { CompletedRoundSnapshot } from "../../application";
+import type {
+  CompletedRoundSnapshot,
+  ReadingResolution,
+  ResolveReadingBatchResult,
+} from "../../application";
 import type {
   EvaluateSemanticsResult,
   GenerateCandidatesResult,
@@ -26,6 +30,7 @@ export interface FirstRoundPersistenceInput {
   readonly sessionId?: string;
   readonly sourceSurface: string;
   readonly sourceReading: string;
+  readonly sourceReadingResolution?: ReadingResolution;
   readonly createdAt?: number;
   readonly round: CompletedRoundSnapshot;
 }
@@ -78,6 +83,7 @@ export interface LoadedRoundSnapshot {
   readonly generationTargetCount: number;
   readonly excludeTerms: readonly string[];
   readonly generationResult: GenerateCandidatesResult;
+  readonly candidateReadingResolutionResult: ResolveReadingBatchResult | null;
   readonly semanticEvaluationResult: EvaluateSemanticsResult;
   readonly sourceRhyme: RhymeRepresentations;
   readonly selectionResult: SelectionResult;

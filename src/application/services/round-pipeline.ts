@@ -90,42 +90,64 @@ export async function executeRoundPipeline(
   }
 
   const preSemanticCandidates: PreSemanticCandidate[] = [];
-  for (const generationIndex of uniqueGenerationIndexes(
-    generationResult.candidates,
-  )) {
+  const generationIndexes = uniqueGenerationIndexes(generationResult.candidates);
+  const readingRequests = generationIndexes.flatMap((generationIndex) => {
     const generated = generationResult.candidates[generationIndex];
-    if (generated === undefined) {
+    return generated === undefined
+      ? []
+      : [{
+          requestKey: generated.candidateKey,
+          surface: generated.surface,
+          ...(generated.readingHint === undefined
+            ? {}
+            : { readingHint: generated.readingHint }),
+        }];
+  });
+
+  let candidateReadingResolutionResult;
+  try {
+    candidateReadingResolutionResult =
+      await dependencies.readingResolver.resolveBatch({ items: readingRequests });
+  } catch (cause) {
+    throw new ApplicationError(
+      "READING_RESOLVER_FAILED",
+      "Reading Resolver failed for candidate batch",
+      cause,
+    );
+  }
+
+  const readingCounts = new Map<CandidateKey, number>();
+  for (const item of candidateReadingResolutionResult.results) {
+    readingCounts.set(
+      item.requestKey,
+      (readingCounts.get(item.requestKey) ?? 0) + 1,
+    );
+  }
+  const readingByRequestKey = new Map(
+    candidateReadingResolutionResult.results.map((item) => [item.requestKey, item]),
+  );
+
+  for (const generationIndex of generationIndexes) {
+    const generated = generationResult.candidates[generationIndex];
+    if (generated === undefined || readingCounts.get(generated.candidateKey) !== 1) {
       continue;
     }
 
-    let resolution;
+    const resolution = readingByRequestKey.get(generated.candidateKey);
+    if (
+      resolution === undefined ||
+      resolution.status === "unresolved" ||
+      resolution.reading.surface !== generated.surface
+    ) {
+      continue;
+    }
+
+    let rhymeRepresentation: RhymeRepresentations;
     try {
-      resolution = await dependencies.readingResolver.resolve({
-        surface: generated.surface,
-        ...(generated.readingHint === undefined
-          ? {}
-          : { readingHint: generated.readingHint }),
-      });
-    } catch (cause) {
-      throw new ApplicationError(
-        "READING_RESOLVER_FAILED",
-        `Reading Resolver failed for candidate: ${generated.candidateKey}`,
-        cause,
-      );
-    }
-
-    if (resolution.status === "unresolved") {
+      rhymeRepresentation = normalizeRhyme(resolution.reading.reading);
+    } catch {
       continue;
     }
-
-    if (resolution.reading.surface !== generated.surface) {
-      throw new ApplicationError(
-        "READING_RESOLVER_FAILED",
-        `Reading Resolver returned a different candidate surface: ${generated.candidateKey}`,
-      );
-    }
-
-    const rhymeRepresentation = normalizeRhyme(resolution.reading.reading);
     const soundResult = calculateSoundScore(
       input.sourceRhyme,
       rhymeRepresentation,
@@ -220,6 +242,7 @@ export async function executeRoundPipeline(
     generationTargetCount: input.generationTargetCount,
     excludeTerms: input.excludeTerms,
     generationResult,
+    candidateReadingResolutionResult,
     semanticEvaluationResult,
     sourceRhyme: input.sourceRhyme,
     scoringConfig: input.scoringConfig,

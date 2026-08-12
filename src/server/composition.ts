@@ -12,6 +12,12 @@ import {
 } from "../infrastructure/persistence";
 import type { PersistenceDatabaseConnection } from "../infrastructure/persistence";
 import { StubReadingResolver } from "../infrastructure/reading/stub-reading-resolver";
+import {
+  createOpenAiClient,
+  OpenAiLlmAdapter,
+  OpenAiReadingResolver,
+  SdkOpenAiResponsesExecutor,
+} from "../infrastructure/openai";
 import type { BackendApiDependencies } from "./api/handlers/types";
 import {
   DEVELOPMENT_GENERATION_RESULT,
@@ -19,6 +25,7 @@ import {
   DEVELOPMENT_SEMANTIC_RESULT,
 } from "./fixtures/development-stub-fixture";
 import { FixedBetaUserResolver } from "./identity/beta-user-resolver";
+import { readExternalAdapterConfig } from "./external-adapter-config";
 
 let singleton:
   | {
@@ -32,25 +39,46 @@ export function getServerComposition(): BackendApiDependencies {
     return singleton.dependencies;
   }
 
+  const adapterConfig = readExternalAdapterConfig();
   const connection = openPersistenceDatabase(
     process.env.LYRICS_ASSIST_DB_PATH ?? DEFAULT_DATABASE_PATH,
   );
   const persistence = new SqliteApplicationPersistence(connection.db);
-  const readingResolver = new StubReadingResolver(DEVELOPMENT_READINGS);
-  const llmAdapter = new StubLlmAdapter({
-    generationResult: DEVELOPMENT_GENERATION_RESULT,
-    semanticResult: DEVELOPMENT_SEMANTIC_RESULT,
-  });
+  const adapters =
+    adapterConfig.mode === "stub"
+      ? {
+          readingResolver: new StubReadingResolver(DEVELOPMENT_READINGS),
+          llmAdapter: new StubLlmAdapter({
+            generationResult: DEVELOPMENT_GENERATION_RESULT,
+            semanticResult: DEVELOPMENT_SEMANTIC_RESULT,
+          }),
+        }
+      : (() => {
+          const executor = new SdkOpenAiResponsesExecutor(
+            createOpenAiClient(adapterConfig.apiKey),
+          );
+          return {
+            readingResolver: new OpenAiReadingResolver({
+              executor,
+              model: adapterConfig.readingModel,
+            }),
+            llmAdapter: new OpenAiLlmAdapter({
+              executor,
+              generationModel: adapterConfig.generationModel,
+              semanticModel: adapterConfig.semanticModel,
+            }),
+          };
+        })();
   const dependencies: BackendApiDependencies = {
     betaUserResolver: new FixedBetaUserResolver(),
     generationService: new GenerationService({
-      readingResolver,
-      llmAdapter,
+      readingResolver: adapters.readingResolver,
+      llmAdapter: adapters.llmAdapter,
       roundPersistence: persistence,
     }),
     rerollService: new RerollService({
-      readingResolver,
-      llmAdapter,
+      readingResolver: adapters.readingResolver,
+      llmAdapter: adapters.llmAdapter,
       roundPersistence: persistence,
       sessionQuery: persistence,
     }),
@@ -66,4 +94,3 @@ export function resetServerCompositionForTests(): void {
   singleton?.connection.close();
   singleton = undefined;
 }
-

@@ -25,6 +25,7 @@ export const generationSessions = sqliteTable(
       .references(() => users.id, { onDelete: "restrict" }),
     sourceSurface: text("source_surface").notNull(),
     sourceReading: text("source_reading").notNull(),
+    sourceReadingResolutionJson: text("source_reading_resolution_json"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
@@ -63,6 +64,9 @@ export const generationRounds = sqliteTable(
     semanticEvaluationResultJson: text(
       "semantic_evaluation_result_json",
     ).notNull(),
+    candidateReadingResolutionResultJson: text(
+      "candidate_reading_resolution_result_json",
+    ),
     normalizerVersion: text("normalizer_version").notNull(),
     sourceRhymeJson: text("source_rhyme_json").notNull(),
     scoringConfigVersion: text("scoring_config_version")

@@ -7,15 +7,16 @@ import type { BackendApiDependencies } from "./types";
 
 export async function handleSessionQuery(
   params: Promise<{ readonly sessionId: string }>,
-  dependencies: BackendApiDependencies = getServerComposition(),
+  dependencies?: BackendApiDependencies,
 ): Promise<Response> {
   try {
+    const resolvedDependencies = dependencies ?? getServerComposition();
     const parsedId = uuidSchema.safeParse((await params).sessionId);
     if (!parsedId.success) {
       throw new ApiBoundaryError(400, "INVALID_REQUEST", "Request is invalid.");
     }
-    const userId = dependencies.betaUserResolver.resolveUserId();
-    const result = await dependencies.sessionQueryService.getSession({
+    const userId = resolvedDependencies.betaUserResolver.resolveUserId();
+    const result = await resolvedDependencies.sessionQueryService.getSession({
       userId,
       sessionId: parsedId.data,
     });
@@ -24,4 +25,3 @@ export async function handleSessionQuery(
     return mapApiError(error);
   }
 }
-

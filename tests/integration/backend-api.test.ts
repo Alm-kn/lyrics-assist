@@ -485,6 +485,32 @@ describe("M8 Backend API", () => {
     }
   });
 
+  it("masks missing OpenAI configuration before any provider request", async () => {
+    const previousMode = process.env.LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE;
+    const previousKey = process.env.OPENAI_API_KEY;
+    try {
+      process.env.LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE = "openai";
+      delete process.env.OPENAI_API_KEY;
+      resetServerCompositionForTests();
+      const response = await handleGeneration(
+        jsonRequest("http://test/api/generations", { sourceSurface: "夜" }),
+      );
+      expect(response.status).toBe(500);
+      expect(await bodyOf(response)).toEqual({
+        error: { code: "INTERNAL_ERROR", message: "An internal error occurred." },
+      });
+    } finally {
+      resetServerCompositionForTests();
+      if (previousMode === undefined) {
+        delete process.env.LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE;
+      } else {
+        process.env.LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE = previousMode;
+      }
+      if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousKey;
+    }
+  });
+
   it("validates the fixed beta user environment without exposing its value", () => {
     const previous = process.env.LYRICS_ASSIST_BETA_USER_ID;
     try {

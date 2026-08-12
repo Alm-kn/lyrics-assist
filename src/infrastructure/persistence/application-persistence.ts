@@ -72,6 +72,7 @@ export class SqliteApplicationPersistence
         userId: input.userId,
         sourceSurface: input.sourceSurface,
         sourceReading: input.sourceReading,
+        sourceReadingResolution: input.sourceReadingResolution,
         round: input.round,
       });
       return persistedReferences(

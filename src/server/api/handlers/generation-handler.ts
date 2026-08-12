@@ -7,12 +7,13 @@ import type { BackendApiDependencies } from "./types";
 
 export async function handleGeneration(
   request: Request,
-  dependencies: BackendApiDependencies = getServerComposition(),
+  dependencies?: BackendApiDependencies,
 ): Promise<Response> {
   try {
+    const resolvedDependencies = dependencies ?? getServerComposition();
     const body = await parseJsonBody(request, generationRequestSchema);
-    const userId = dependencies.betaUserResolver.resolveUserId();
-    const result = await dependencies.generationService.generateInitialRound({
+    const userId = resolvedDependencies.betaUserResolver.resolveUserId();
+    const result = await resolvedDependencies.generationService.generateInitialRound({
       userId,
       sourceSurface: body.sourceSurface,
     });
@@ -21,4 +22,3 @@ export async function handleGeneration(
     return mapApiError(error);
   }
 }
-

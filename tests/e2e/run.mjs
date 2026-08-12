@@ -30,6 +30,7 @@ const environment = {
   ...process.env,
   LYRICS_ASSIST_DB_PATH: databasePath,
   LYRICS_ASSIST_BETA_USER_ID: randomUUID(),
+  LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE: "stub",
 };
 let exitCode = 1;
 
