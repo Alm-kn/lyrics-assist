@@ -165,13 +165,109 @@ M8時点のdeployment assumptionはowner-only / localまたはprivate利用と�
 詳細: `docs/web-ui-design-v0.1.md`
 
 ### M10 - Real External Adapters / β Evaluation
-- Real LLM Adapter
+
+Real External Adapter:
+
+- official OpenAI JavaScript / TypeScript SDK
+- implementation開始時にstable SDK compatibility gate
+- exact version pin
 - OpenAI Responses API + Structured Outputs
-- Real Reading Resolver
-- model / provider config via server-side environment
-- fixed keyword evaluation set
-- latency / quality / cost observation
-- β feedbackを用いたscoring / selection仮説の評価
+- `store=false`
+- non-streaming / no tools / stateless request
+- initial `reasoning.effort = none`
+- initial default model `gpt-5.6-terra`
+- Generation / Semantic / Readingをtask別envでoverride可能
+- `Stub | OpenAI` server composition mode
+- default modeはStub
+- `OPENAI_API_KEY` はserver-side only
+- Real Adapter失敗時のautomatic Stub fallbackなし
+- automatic model fallbackなし
+
+Real LLM Adapter:
+
+- `OpenAiLlmAdapter`
+- Candidate Generation prompt `candidate-openai-v0.1`
+- Semantic Evaluation prompt `semantic-openai-v0.1`
+- existing Application `LlmAdapter` Portを維持
+- Generation model outputにはsurface / nullable readingHintのみ
+- candidateKeyはAdapter側でNode cryptoを用いdeterministic生成
+- SemanticへSound / reading / rhymeを渡さない
+- model / prompt / inference config / provider response id / usage / duration metadata
+
+Real Reading Resolver:
+
+- `OpenAiReadingResolver`
+- prompt `reading-openai-v0.1`
+- source readingはsingle resolve
+- candidate readingはbatch resolve
+- candidate 60件を1件ずつexternal API callしない
+- `ReadingResolver.resolveBatch` をApplication Portへ最小追加
+- StubReadingResolverもbatch contract対応
+- requestKey / candidateKeyでidentity reconciliation
+- item unresolvedはcandidate単位除外
+- batch-level provider failureはRound全体失敗
+- source reading ambiguityはβ limitationとして観測し、manual override UIは追加しない
+
+Provider behavior version:
+
+```text
+openai-responses-v0.1
+```
+
+Persistence provenance:
+
+- `generation_sessions.source_reading_resolution_json TEXT NULL`
+- `generation_rounds.candidate_reading_resolution_result_json TEXT NULL`
+- additive migrationのみ
+- existing rowはNULL
+- backfillしない
+- table rebuild / destructive migrationが生成された場合は停止
+- startup auto migrationなし
+- generic operation / failed pipeline log tableは追加しない
+- token usage / external call durationはAdapter result metadataとして保持
+- monetary costはDBへ固定保存しない
+
+Testing:
+
+- default `npm test` / Playwright E2EはStub / offlineのまま
+- real OpenAI networkを通常testへ混ぜない
+- opt-in `test:openai-smoke`
+- smokeは少数candidateでsource reading / generation / candidate batch reading / semantic Structured Outputを確認
+- real API keyがない場合はnetwork callしない
+- no accidental paid calls
+
+β Evaluation:
+
+- Phase A: Real Adapter technical smoke
+- Phase B: fixed keyword baseline
+- Phase C: natural personal usage
+- baseline:
+  - 夜
+  - 雨
+  - 光
+  - 心
+  - 夢
+  - 孤独
+  - 永遠
+  - 東京
+  - ネオン
+  - さよなら
+  - 明日
+  - 空
+- real β用SQLite DBをdevelopment Stub DBと分離
+- Candidate Like / DislikeとSound Feedbackを観測
+- Reading errorは目視分類
+- Selection category / fallback / generation pool / rerollを分析
+- latency / token usageを観測
+- optional read-only `beta:report`
+- β結果を根拠なしにSound formula / Selectorへ自動反映しない
+
+詳細:
+
+```text
+docs/external-adapter-design-v0.1.md
+docs/beta-evaluation-design-v0.1.md
+```
 
 ## Codex task rule
 
@@ -218,3 +314,26 @@ M9では `docs/web-ui-design-v0.1.md` を詳細Source of Truthとする。
 M9のreload Feedback復元は承認済みcross-layer extensionであり、M7/M8のread model / public DTOを最小変更してよい。ただしPersistence schema / migration / Feedback current-state write semanticsは変更しない。
 
 M9完了後はdocs / tests / Browser E2E / implementation reportを確認してからM10へ進む。
+
+## M10 implementation stop conditions
+
+M10では以下に該当した場合、独自判断でscopeを変更せず停止して報告する。
+
+- stable official OpenAI SDKでResponses API / Structured Outputs contractを実装できない
+- Zod 4互換のためにOpenAI SDK以外の新direct dependencyが必要
+- candidate Reading batch化にApplication / Product意味の変更が必要
+- Reading provenance migrationがnullable ADD COLUMNではなくtable rebuild / destructive SQLになる
+- M5のSound / Semantic independenceを崩す必要がある
+- BrowserへOpenAI API keyを渡す必要がある
+- new Backend API endpointが必要
+- authentication / public tester対応が必要
+- OpenAI以外のprovider dependencyが必要
+- real provider failure時のautomatic Stub / model fallbackが必要
+- ScoringConfig / SelectionConfig / Sound formula / 4-3-3を実装中に変更する必要がある
+- failed operation log / generic performance tableが実装必須になる
+
+M10では `docs/external-adapter-design-v0.1.md` をReal AdapterのSource of Truth、`docs/beta-evaluation-design-v0.1.md` をβ EvaluationのSource of Truthとする。
+
+M10 implementation taskでは、まずSDK compatibility gate、Real Adapter、batch Reading、provenance migration、offline regression tests、opt-in smoke commandまで実装する。実API smokeはユーザーがAPI Project / billing / `OPENAI_API_KEY` を準備してから明示的に実行する。
+
+β評価中に品質改善案が見つかっても、同じimplementation task内でSound / Semantic / Selector ruleを無言変更しない。観測結果を次Decisionの入力として報告する。

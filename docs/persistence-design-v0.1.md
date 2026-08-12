@@ -1,10 +1,10 @@
-# Persistence / Database 詳細設計 v0.1
+# Persistence / Database 詳細設計 v0.1.1
 
 更新日: 2026-08-12
 
 ## 1. 位置づけ
 
-本書は `docs/system-design-v0.1.md` を補足し、M6 - Persistence / SQLite + Drizzle の詳細設計を定義する。
+本書は `docs/system-design-v0.1.md` を補足し、M6で確立したPersistence設計と、M10で追加するReading Resolver provenance保存を定義する。
 
 M6の目的は、M0〜M5で確立したDomainロジックの出力を、後から復元・比較・分析できる形でSQLiteへ永続化することである。
 
@@ -60,6 +60,8 @@ M6では以下を実装しない。
 - user authentication
 
 これらは必要性が発生したMilestoneで追加する。
+
+M10ではreal Reading Resolverの実験再現性のため、source / candidate Reading Resolution provenanceだけをadditive schema extensionとして追加する。一般的なLLM call log / failed operation log / timing tableは作らない。
 
 ---
 
@@ -373,11 +375,12 @@ created_at  INTEGER  NOT NULL
 ```text
 generation_sessions
 
-id              TEXT     PK NOT NULL
-user_id         TEXT     NOT NULL
-source_surface  TEXT     NOT NULL
-source_reading  TEXT     NOT NULL
-created_at      INTEGER  NOT NULL
+id                              TEXT     PK NOT NULL
+user_id                         TEXT     NOT NULL
+source_surface                  TEXT     NOT NULL
+source_reading                  TEXT     NOT NULL
+source_reading_resolution_json  TEXT     NULL
+created_at                      INTEGER  NOT NULL
 ```
 
 Constraint:
@@ -391,6 +394,35 @@ FK user_id
 Session保存時点ではsource readingが確定済みであるため `source_reading` はNOT NULL。
 
 同じUserが同じsource wordのSessionを複数持つことを許容する。
+
+### 9.1 `source_reading_resolution_json`
+
+M10で追加するnullable raw snapshot。
+
+Initial Generation時に実際にsource readingを確定したResolver結果とprovenanceを保存する。
+
+概念:
+
+```text
+{
+  status
+  reading?
+  metadata {
+    resolverIdentifier
+    promptVersion
+    inferenceConfigVersion
+    providerResponseId?
+    durationMs?
+    usage?
+  }
+}
+```
+
+既存M6〜M9 rowはNULLを許容する。
+
+M10以降にreal/stubいずれのResolverで新規Initial Generationを保存する場合は値を記録する。
+
+Rerollではsource Reading Resolverを再実行しないため、Sessionの既存snapshotを共有する。
 
 ---
 
@@ -462,9 +494,10 @@ generation_model_identifier      TEXT     NOT NULL
 generation_prompt_version        TEXT     NOT NULL
 generation_result_json           TEXT     NOT NULL
 
-semantic_evaluation_result_json  TEXT     NOT NULL
+semantic_evaluation_result_json          TEXT     NOT NULL
+candidate_reading_resolution_result_json  TEXT     NULL
 
-normalizer_version               TEXT     NOT NULL
+normalizer_version                       TEXT     NOT NULL
 source_rhyme_json                TEXT     NOT NULL
 
 scoring_config_version           TEXT     NOT NULL
@@ -537,6 +570,47 @@ Sessionには `source_reading` が存在するが、Normalizer変更後でも当
 M5 `SelectionResult` 全体を保存する。
 
 CandidateResultのselection projectionと重複するが、当時Selectorが返した完全なDomain resultを一次記録として保持するため意図的に保存する。
+
+### 12.6 `candidate_reading_resolution_result_json`
+
+M10で追加するnullable Round-level raw snapshot。
+
+Candidate Generation後、unique candidateKeyを対象に実行したReadingResolver batch resultを保存する。
+
+概念:
+
+```text
+{
+  results [
+    {
+      requestKey
+      status
+      reading?
+    }
+  ]
+  metadata {
+    resolverIdentifier
+    promptVersion
+    inferenceConfigVersion
+    providerResponseId?
+    durationMs?
+    usage?
+  }
+}
+```
+
+目的:
+
+- candidate reading unresolvedを後から確認する
+- Reading provider / model / promptの変更影響を比較する
+- Reading段階でCandidateResultへ進まなかったcandidateも分析可能にする
+- 60候補をbatch resolveした1 provider callのusage / durationを保持する
+
+既存M6〜M9 RoundはNULLを許容する。
+
+M10以降のcompleted Roundでは値を保存する。
+
+candidate batch自体がsystem failureしてRoundが完成しなかった場合、既存方針どおりfailed RoundはDBへ保存しない。
 
 ---
 
@@ -1293,6 +1367,15 @@ M6 schemaは少なくとも将来以下を分析可能にする。
 - Session内Round数
 - Round間のcandidate変化
 
+### Reading provenance
+
+- source reading resolver / prompt / inference config
+- candidate batch item count
+- unresolved candidate reading count
+- provider usage token数
+- provider call duration
+- Reading provider / prompt version別の失敗傾向
+
 これらの分析方法・合否threshold自体はM6で固定しない。
 
 DB設計の逆向きテストとして「必要データが残るか」だけを保証する。
@@ -1358,6 +1441,8 @@ DB設計の逆向きテストとして「必要データが残るか」だけを
 - generation result round-trip
 - semantic result round-trip
 - source rhyme round-trip
+- source reading resolution round-trip / nullable legacy row
+- candidate reading batch result round-trip / nullable legacy row
 - sound result round-trip
 - selection result round-trip
 
@@ -1441,3 +1526,90 @@ drizzle-kit
 - 現行Drizzle Node:SQLite guideはv1 RC packageを例示しており、KitのNode:SQLite supportにはv1 beta以降の変更履歴がある。
 
 そのためM6実装では、公式情報とlocal compatibilityを再確認してdependency versionをpinし、pre-release採用が必要なら受入前に停止する。
+
+---
+
+## 35. M10 Reading provenance migration
+
+M10では次の2 columnだけをschemaへ追加する。
+
+```text
+generation_sessions
+  source_reading_resolution_json TEXT NULL
+
+generation_rounds
+  candidate_reading_resolution_result_json TEXT NULL
+```
+
+これはreal Reading Resolver導入後のβデータを「どのResolver / model / prompt / inference条件でreadingが確定したか」まで追跡するためのprovenance extensionである。
+
+### 35.1 Migration形状
+
+期待するmigrationはadditive。
+
+```text
+ALTER TABLE ... ADD COLUMN ... TEXT
+```
+
+相当。
+
+必須条件:
+
+```text
+existing row削除なし
+DROP TABLEなし
+DROP COLUMNなし
+既存column renameなし
+table rebuildなし
+existing row update不要
+```
+
+Drizzle RCがSQLite migration生成時にtable rebuild等を生成した場合、M10 implementationを停止してSQLを報告する。
+
+### 35.2 Existing data
+
+M6〜M9の既存Session / Roundは新columnがNULLのままで正常。
+
+historical rowへ後付け推測値を書き込まない。
+
+M10以降の新規completed dataだけprovenanceを持つ。
+
+### 35.3 Migration safety before real β
+
+real β用DBを新pathで開始する場合でもmigration fileは通常のschema historyとしてGit管理する。
+
+既存development DBへ適用する前に、
+
+```text
+backup
+copy migration
+integrity_check
+foreign_key_check
+row count
+```
+
+を確認する。
+
+### 35.4 No generic operation log
+
+M10で保存する`durationMs` / token usageはReading / LLM Adapter resultのprovenance metadataに限定する。
+
+以下の汎用tableは追加しない。
+
+```text
+llm_call_logs
+operation_logs
+failed_pipeline_logs
+performance_logs
+cost_logs
+```
+
+必要性がβで確認された時点で別設計とする。
+
+### 35.5 Cost
+
+token usageはhistorical factとして保存してよい。
+
+金額はprovider pricing変更で意味が変わるためDB snapshotへ固定しない。
+
+β report時点のcurrent pricingで別途概算する。

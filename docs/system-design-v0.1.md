@@ -1,4 +1,4 @@
-# 歌詞作成補助ツール システム設計書 v0.1.6 β
+# 歌詞作成補助ツール システム設計書 v0.1.7 β
 
 > v0.1の実装設計のSource of Truth。技術スタックはβ向け仮決定であり、製品挙動を変えない実装詳細はDecision Logを更新した上で変更可能。
 
@@ -17,7 +17,7 @@ v0.1は個人利用を主目的とするWebアプリであり、将来的に少�
 | --- | --- |
 | 形態 | Webアプリ |
 | 利用者 | 原則 owner 1名。tester追加を阻害しないデータ構造とする |
-| LLM | 外部LLM APIをAdapter越しに利用。具体モデルは設計・PoCで選定 |
+| LLM / Reading | OpenAI Responses APIをInfrastructure Adapter越しに利用。M10 initial defaultは `gpt-5.6-terra`。Stub modeをdefaultに維持し、real β時だけOpenAI modeへ切替 |
 | 保存 | SQLite + Drizzleで生成履歴・評価内訳・FBを永続化。DBは当時の実験結果をsnapshotとして保持する |
 | 設計方針 | 単一アプリケーションとして小さく構成し、内部責務のみ明確に分離 |
 
@@ -43,11 +43,11 @@ v0.1 βの実装開始に必要な技術前提として、以下を採用する�
 | ORM | Drizzle ORM `1.0.0-rc.4` / Drizzle Kit `1.0.0-rc.4`（exact pin） | `node:sqlite` 対応を公式手順に沿ってSmoke Gate確認済み。Product / Domain仕様はRC固有APIへ依存させない。 |
 | Unit Test | Vitest | RhymeNormalizer / SoundScorer / CandidateSelector等の決定論的TypeScriptロジックを高速に検証しやすい。 |
 | E2E Test | Playwright | Browser上の初期画面→生成→詳細→FB等の主要フローを自動検証できる。 |
-| LLM API | OpenAI Responses API + Structured Outputs | 候補生成・意味評価をJSON Schemaに沿う構造化データとして受け取りやすい。具体モデルは未固定。 |
+| External AI API | OpenAI Responses API + Structured Outputs / official OpenAI JS SDK | Candidate Generation・Semantic Evaluation・Reading Resolutionをserver-side Adapterとして実装する。initial default modelは `gpt-5.6-terra`、task別env override可。 |
 | Package Manager | npm | Node.js同梱で追加導入が不要。初回環境構築を単純化する。 |
 | Version Control | Git（GitHub Privateは推奨・任意） | ローカル変更履歴を必須とし、GitHubはバックアップ・共有・将来のPR運用に利用できる。 |
 
-注: v0.1では上記を仮決定とする。特にDB・LLMモデル・Reading Resolver実装は、少人数試用やβ結果に応じて変更可能な境界を維持する。
+注: v0.1では上記をβ向け決定とする。OpenAI model / Reading providerはInfrastructure境界に隔離し、β結果に応じて差し替え可能とする。DB・Domain・public APIをprovider固有contractへ依存させない。
 
 # 2. システム全体アーキテクチャ
 
@@ -77,11 +77,11 @@ v0.1 βの実装開始に必要な技術前提として、以下を採用する�
                                            ^
                                            |
                               [ Infrastructure Implementations ]
-                                 |-- Stub ReadingResolver
-                                 |-- Stub / Real LLM Adapter
+                                 |-- Stub / OpenAI ReadingResolver
+                                 |-- Stub / OpenAI LlmAdapter
                                  `-- SQLite / Drizzle Persistence
                                            |
-                                           +----> [ External LLM API ]
+                                           +----> [ OpenAI Responses API ]
 ```
 
 v0.1ではこれらを別サービスへ分割しない。デプロイ単位は原則1つとし、コード上のモジュール境界として分離する。
@@ -196,52 +196,57 @@ evaluated poolが0件の場合はRoundを完成扱いにせず保存しない。
 
 ## 4.1 Reading Resolver（Application Port）
 
-日本語表記から比較に必要な確定readingを取得する能力は、Domain moduleではなくApplication所有のPortとして定義する。辞書・形態素解析・LLM等の具体方式はInfrastructure実装へ隔離する。
+日本語表記から比較に必要な確定readingを取得する能力はApplication-owned Portとして定義し、具体providerをInfrastructureへ隔離する。
+
+M10では、
+
+```text
+stub
+openai
+```
+
+の2 implementationを持つ。
+
+Source wordは単体resolve。
+
+Candidate poolは外部APIを1 candidate = 1 callで呼ばず、batch resolveする。
 
 概念I/F:
 
 ```ts
-type ResolveReadingRequest = {
-  surface: string;
-  readingHint?: string;
-};
-
-type ReadingResolution =
-  | {
-      status: "resolved";
-      reading: ReadingResult;
-    }
-  | {
-      status: "unresolved";
-    };
-
 interface ReadingResolver {
-  resolve(request: ResolveReadingRequest): Promise<ReadingResolution>;
+  resolve(
+    request: ResolveReadingRequest,
+  ): Promise<ReadingResolution>;
+
+  resolveBatch(
+    request: ResolveReadingBatchRequest,
+  ): Promise<ResolveReadingBatchResult>;
 }
 ```
 
-Candidate Generationが返す `readingHint` は補助情報であり、確定readingとして盲信しない。Resolverが最終的な `ReadingResult` を返す。
-
-失敗時の扱い:
+candidate batchでは `candidateKey` をrequestKeyとしてidentityを維持する。
 
 ```text
-source unresolved
-  -> Generation Use Case失敗
-  -> LLM Candidate Generationを呼ばない
-  -> DB保存なし
+item unresolved / missing / duplicate
+-> 該当candidateだけ後段から除外
 
-candidate unresolved
-  -> 該当candidateだけ後段から除外
-  -> raw Generation Resultには残す
-
-ReadingResolver system failure / throw
-  -> Round全体失敗
-  -> DB保存なし
+batch-level provider / parse / refusal failure
+-> Round全体失敗
 ```
 
-M7ではfixture injection型のdeterministic `StubReadingResolver` のみ実装する。real providerはReal External Adapter接続Milestoneで実装する。
+`readingHint` は補助情報であり確定readingとして盲信しない。
+
+M10 real providerはOpenAI Responses API + Structured Outputsを使用する。candidate 60件を原則1 batch callで処理し、latency / costの爆発を避ける。
+
+Reading結果にはresolver identifier / prompt version / inference config / provider usage / duration等のprovenance metadataを持たせる。
+
+Source readingの多義性はv0.1の既知制約。manual reading override UIはM10では追加せず、βで必要性を観測する。
 
 Rhyme NormalizerはReadingResolverを内部から呼ばず、確定済みReadingResultを受け取る責務分離を維持する。
+
+詳細は `docs/application-service-design-v0.1.md` および `docs/external-adapter-design-v0.1.md` を参照する。
+
 
 ## 4.2 Rhyme Normalizer
 
@@ -356,7 +361,7 @@ LlmAdapter
   evaluateSemantics(request)  -> EvaluateSemanticsResult
 ```
 
-M4ではfixture injection型のdeterministic Stubのみ実装し、実LLM接続は後続Milestoneで行う。
+M4ではfixture injection型Stubを実装した。M10ではInfrastructure `OpenAiLlmAdapter` を追加し、server compositionの `stub | openai` modeで切り替える。Application Port contractは維持する。
 
 ## 5.2 Candidate Generation I/F
 
@@ -388,6 +393,10 @@ GenerateCandidatesResult {
   metadata {
     modelIdentifier
     generationPromptVersion
+    inferenceConfigVersion
+    providerResponseId?
+    durationMs
+    usage?
   }
 }
 ```
@@ -435,6 +444,10 @@ EvaluateSemanticsResult {
   metadata {
     modelIdentifier
     semanticPromptVersion
+    inferenceConfigVersion
+    providerResponseId?
+    durationMs
+    usage?
   }
 }
 ```
@@ -442,6 +455,78 @@ EvaluateSemanticsResult {
 候補とSemantic結果は配列indexではなく `candidateKey` で対応付ける。
 
 詳細は `docs/llm-adapter-design-v0.1.md` を参照する。
+
+
+## 5.4 M10 OpenAI implementation
+
+v0.1 real adapter:
+
+```text
+Provider:
+  OpenAI
+
+API:
+  Responses API
+
+Output:
+  Structured Outputs
+
+SDK:
+  official OpenAI JavaScript / TypeScript SDK
+
+Initial model:
+  gpt-5.6-terra
+
+Reasoning:
+  effort = none
+
+Responses state:
+  store = false
+
+Streaming:
+  off
+
+Tools:
+  none
+```
+
+task別model override:
+
+```text
+LYRICS_ASSIST_OPENAI_GENERATION_MODEL
+LYRICS_ASSIST_OPENAI_SEMANTIC_MODEL
+LYRICS_ASSIST_OPENAI_READING_MODEL
+```
+
+External Adapter mode:
+
+```text
+LYRICS_ASSIST_EXTERNAL_ADAPTER_MODE=stub|openai
+
+default = stub
+```
+
+build / test / E2EではStubをdefaultとし、意図せず有料network callを発生させない。
+
+`openai` mode失敗時のautomatic Stub fallbackやmodel fallbackは行わない。βデータの由来を曖昧にしないためである。
+
+Prompt version initial:
+
+```text
+candidate-openai-v0.1
+semantic-openai-v0.1
+reading-openai-v0.1
+```
+
+Provider behavior version:
+
+```text
+openai-responses-v0.1
+```
+
+candidateKeyはmodelへ生成させず、OpenAI Adapterがraw surface + readingHintからNode標準cryptoでdeterministicに生成する。
+
+詳細は `docs/external-adapter-design-v0.1.md` を参照する。
 
 # 6. Candidate Selector v0.1
 
@@ -646,7 +731,7 @@ Persistenceは「現在の正解状態」ではなく、当時の生成・評価
 - DB永続IDとgeneration round内の `CandidateKey` を分離する。
 - FK delete actionはv0.1では原則 `RESTRICT` とする。
 - completed Roundの永続化はtransactionでatomicに行い、途中状態を残さない。
-- PreferenceProfile / reevaluation / operation log / performance timingはM6では実装しない。
+- PreferenceProfile / reevaluation / generic operation logは実装しない。M10ではReading / LLM Adapter result内のprovider usage / duration provenanceだけを追加する。
 
 詳細は `docs/persistence-design-v0.1.md` を参照する。
 
@@ -655,8 +740,8 @@ Persistenceは「現在の正解状態」ではなく、当時の生成・評価
 | Entity | 主なフィールド | 目的 |
 | --- | --- | --- |
 | User | id, created_at | owner / testerのデータ所有境界。v0.1では認証accountではない |
-| GenerationSession | id, user_id, source_surface, source_reading, created_at | 一連のsource word探索単位 |
-| GenerationRound | id, session_id, round_number, input条件, raw result snapshots, config versions | 初回/リロール1回分の完成した実験snapshot |
+| GenerationSession | id, user_id, source_surface, source_reading, source_reading_resolution_json?, created_at | 一連のsource word探索単位。M10以降はsource Reading provenanceを保持 |
+| GenerationRound | id, session_id, round_number, input条件, raw result snapshots, candidate_reading_resolution_result_json?, config versions | 初回/リロール1回分の完成した実験snapshot |
 | CandidateResult | id, round_id, candidate_key, word/reading/rhyme, sound/semantic, selected, selection情報 | 評価済みcandidate pool全体のsnapshot |
 | CandidateFeedback | candidate_result_id, like/dislike, timestamps | 候補そのものへの最終嗜好 |
 | SoundScoreFeedback | candidate_result_id, low/valid/high, timestamps | Sound Scoreへの最終納得度 |
@@ -705,6 +790,20 @@ CandidateResult {
 Normalizer / ScoringConfig / SelectionConfig / Generation model / Prompt等のRound共通metadataはGenerationRound側にもsnapshotする。
 
 将来新しいScorer / Selectorで過去データを再評価しても、元CandidateResultをUPDATEしない。再評価結果の永続化が必要になった場合は別entityとして追加する。
+
+
+M10ではReading provenance用に次のnullable JSON columnをadditive migrationで追加する。
+
+```text
+generation_sessions.source_reading_resolution_json
+generation_rounds.candidate_reading_resolution_result_json
+```
+
+M6〜M9のexisting rowはNULLのまま保持し、後付け推測値でbackfillしない。
+
+Drizzle migrationがSQLite table rebuild / destructive SQLを生成する場合は停止してreviewする。
+
+詳細は `docs/persistence-design-v0.1.md` を参照する。
 
 # 9. Backend API
 
@@ -937,9 +1036,11 @@ M9ではSession Queryがcurrent stateを読み取り、reload後もDBと画面�
 | normalizerVersion | rhyme-v0.1 | 韻正規化ルール変更 |
 | scoringConfigVersion | sound-v0.1 | 語感重み/補正変更 |
 | selectionConfigVersion | selector-v0.1 | 4/3/3・多様性条件変更 |
-| generationPromptVersion | candidate-v0.1 | 候補生成方針変更 |
-| semanticPromptVersion | semantic-v0.1 | 意味評価基準変更 |
-| modelIdentifier | provider/model-id | LLMモデル変更 |
+| generationPromptVersion | candidate-openai-v0.1 | 候補生成方針変更 |
+| semanticPromptVersion | semantic-openai-v0.1 | 意味評価基準変更 |
+| readingPromptVersion | reading-openai-v0.1 | Reading Resolver prompt変更 |
+| inferenceConfigVersion | openai-responses-v0.1 | Responses API / reasoning / retry / timeout等provider behavior変更 |
+| modelIdentifier | gpt-5.6-terra 等 | taskで使用したactual model変更 |
 
 # 13. エラー・セキュリティ・観測性
 
@@ -961,8 +1062,8 @@ Application-level error codeと保存挙動の詳細は `docs/application-servic
 
 ## 13.2 セキュリティ / プライバシー
 
-- LLM APIキーはBackendのみで管理し、Browserへ埋め込まない。
-- LLMへ送信する情報はキーワード・候補・評価に必要な最小限とする。
+- `OPENAI_API_KEY` はBackend Infrastructureのみで管理し、Browser / DB / Git / public errorへ埋め込まない。OpenAI Project keyを使用する。
+- OpenAIへ送信する情報はsource / candidate / reading判断 / semantic評価に必要な最小限とする。Responses requestは `store=false` を明示する。
 - Application Use Caseは `userId` でresource ownershipをscopeする。
 - M8ではBrowserから `userId` を受け取らず、server-side `FixedBetaUserResolver` が固定UUIDを注入する。
 - `LYRICS_ASSIST_BETA_USER_ID` は `NEXT_PUBLIC_` を付けず、Browserへ返さない。
@@ -974,7 +1075,7 @@ Application-level error codeと保存挙動の詳細は `docs/application-servic
 
 β調整のため、Session ID / Round / candidate pool size / selected / unselected、category allocation、fallback、version群等を後から追跡できるデータ構造を維持する。
 
-LLM latency / failure / token usage / performance timing等のoperation-level観測性はM7/M8でも永続化しない。Application pipeline完成後、実測されたbottleneckとβ分析需要を見て必要なstage timing / operation logを設計する。
+M10ではreal external callの `durationMs` / input-output-total token usage / model / prompt / inference config / provider response id（利用可能な場合）をAdapter result provenanceとして保存する。金額はpricing変更の影響を受けるためDBへ固定保存せず、β report時にcurrent pricingで概算する。generic operation / failed pipeline log tableは引き続き作らない。
 
 # 14. テスト設計
 
@@ -1006,6 +1107,8 @@ LLM latency / failure / token usage / performance timing等のoperation-level観
 | M6 Persistence | schema / FK / UNIQUE / CHECK / migration / transaction correctnessはM6 Integration Testで継続保証する |
 | Backend API boundary | JSON/Zod validation、固定beta user注入、HTTP status/error mapping、DTO masking、Feedback current-state DTO、Route Handler wiringを確認する |
 | Web UI | Browser API client、latest Round表示、Feedback state、Scatter Plot interaction、responsive/accessibilityを確認する |
+| Real Adapter contract | OpenAI Structured Output schema / mapping / candidateKey / reading batch / metadata / error mappingをnetworkなしで確認する |
+| Reading provenance migration | 2 nullable JSON columnのadditive migration、legacy NULL、round-trip、destructive SQLなしを確認する |
 
 M7のApplication test詳細は `docs/application-service-design-v0.1.md`、M8のAPI test詳細は `docs/backend-api-design-v0.1.md` を参照する。
 
@@ -1025,7 +1128,7 @@ keyboard操作
 
 E2Eは専用temporary SQLite DBと固定beta userを使用し、production/local DBを汚さない。
 
-LLM品質そのものは決定論的E2Eに含めず、M10で固定キーワードセットを用いたβ評価として扱う。
+通常PlaywrightはStub modeを維持し、LLM品質を決定論的E2Eに含めない。M10ではopt-in OpenAI smoke testを別commandで実施し、固定キーワードセット + personal usageを `docs/beta-evaluation-design-v0.1.md` に従って評価する。
 
 # 15. 設計書の粒度（今回の進め方）
 
@@ -1046,14 +1149,15 @@ LLM品質そのものは決定論的E2Eに含めず、M10で固定キーワー�
 | ID | 項目 | 現状の扱い |
 | --- | --- | --- |
 | O-01 | 具体技術スタック | v0.1仮決定済み。Node.js 24 LTS / Next.js App Router / TypeScript / SQLite / Drizzle / Vitest / Playwright / OpenAI Responses API / npm / Git。 |
-| O-02 | 具体LLMモデル | 未決定。OpenAI Responses API + Structured Outputsを利用し、具体モデルはLLM Adapter越しに比較PoC後に選定。 |
-| O-03 | Reading Resolver実装 | M7でApplication Port + deterministic Stubを実装。real providerはReal External Adapter接続Milestoneで実装。 |
+| O-02 | 具体LLMモデル | M10 initial defaultを `gpt-5.6-terra` に決定。Generation / Semantic / Readingをtask別envでoverride可能。β結果で再評価する。 |
+| O-03 | Reading Resolver実装 | M10でOpenAI Responses APIによるreal providerを追加。candidateはbatch resolve。将来辞書/形態素解析providerへ差し替え可能。 |
 | O-04 | Lyric Adjustment詳細 | 最大±10点枠のみ。β事例から追加 |
 | O-05 | Balanced係数/cluster cap | 0.7/0.3、同cluster最大2をβ仮説として採用 |
 | O-06 | relation taxonomy | 暫定集合を採用。実出力を見て統廃合 |
-| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7/M8/M9ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
+| O-07 | 性能目標 | generationTargetCount 60を維持。M10からexternal call duration / token usageをprovenanceとして記録し、βでlatency / costを実測する。固定SLOはまだ置かない。 |
 | O-08 | User authentication | M8ではserver-side固定beta userを使用。authenticationではない。tester/public公開前にAuthenticatedUserResolverへ差し替えて設計する。 |
 | O-09 | UI visual polish | M9でminimal UIを実装するが、copy / spacing / visual detailはβ feedback対象。v0.1で固定ブランド・design systemを作り込まない。 |
+| O-10 | Source reading ambiguity | 多読語でResolverがユーザー意図と異なる可能性あり。M10ではmanual override UIを追加せず、固定baselineとpersonal βで必要性を観測する。 |
 
 # 17. 実装への分解順
 
@@ -1073,7 +1177,7 @@ LLM品質そのものは決定論的E2Eに含めず、M10で固定キーワー�
 
 8. Web UI（初期→結果→詳細、Reroll、2種類のFeedback、reload復元）を接続し、Playwright E2EでBrowser flowを固定。
 
-9. Real LLM Adapter / Real Reading Resolverを接続し、固定キーワードセットでβ評価。
+9. OpenAI Responses API + Structured OutputsでReal LLM Adapter / batch Real Reading Resolverを接続し、Reading provenance migration・opt-in smoke・固定キーワードbaseline・personal β評価を実施。
 
 ## 17.1 Codexへ渡すときの単位
 
@@ -1084,6 +1188,9 @@ M7では `docs/application-service-design-v0.1.md` を詳細Source of Truthと�
 M8では `docs/backend-api-design-v0.1.md` を詳細Source of Truthとし、BrowserからuserIdを受け取らないこと、Route HandlerへDomain/Persistence ruleを埋め込まないこと、DB schemaを変更しないこと、M9以降へ進まないことを停止条件として扱う。
 
 M9では `docs/web-ui-design-v0.1.md` を詳細Source of Truthとする。reload後のFeedback current-state復元のためM7/M8 read contractを最小拡張するが、DB schemaを変更しないこと、新しいUI/chart/state dependencyを追加しないこと、M10へ進まないことを停止条件として扱う。
+
+
+M10では `docs/external-adapter-design-v0.1.md` と `docs/beta-evaluation-design-v0.1.md` を詳細Source of Truthとする。OpenAI SDK / Responses API compatibility gate、candidate Reading batch化、provenance用additive migrationを行う。default automated tests / E2EはStub modeのまま維持し、有料network callはopt-in smokeだけとする。
 
 # 18. 設計完了の判定
 
@@ -1097,4 +1204,6 @@ M9では `docs/web-ui-design-v0.1.md` を詳細Source of Truthとする。reload
 - UT/ITの責務境界が定義されている。
 - Backend APIのvalidation、server-side beta user identity、HTTP error mapping、公開DTO境界が定義されている。
 - Web UIのroute、Browser state、Feedback reload復元、Scatter Plot、accessibility、E2E境界が定義されている。
+- OpenAI real adapter、batch Reading、provider provenance、Stub/OpenAI mode、opt-in smokeの境界が定義されている。
+- β評価で見るReading / Generation / Sound / Semantic / Selector / latency / usageの問いと固定baselineが定義されている。
 - 未決定事項が実装を阻害するものと、後決め可能なものに分離されている。

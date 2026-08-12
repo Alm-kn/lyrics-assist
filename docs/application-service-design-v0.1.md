@@ -1,8 +1,10 @@
-# Application Service 詳細設計 v0.1.1
+# Application Service 詳細設計 v0.1.2
 
 更新日: 2026-08-12
 
 > M9追補: Session Queryでcurrent Feedback stateを返し、reload後のUI状態をDBと一致させるread contractを追加した。DB schema / Feedback write policyは変更しない。
+>
+> M10追補: real Reading Resolver接続時のlatency / costを抑えるため、candidate readingをbatch resolveできるPort contractとprovenance metadataを追加する。Source readingの単体resolveは維持する。
 
 ## 1. 位置づけ
 
@@ -158,11 +160,13 @@ CandidateResult
 
 Rhyme Normalizerは確定済みかなreadingを入力とする。
 
-M7ではreal reading providerを実装せず、Application PortとStubのみ定義する。
+Reading providerはApplication-owned Portとして差し替え可能にし、Stub / real providerをInfrastructureへ隔離する。
 
-### 6.2 Contract
+M10ではreal providerが外部APIを利用するため、candidate 60件を1件ずつnetwork callしないようbatch capabilityを追加する。
 
-概念型:
+### 6.2 Single resolve contract
+
+Source word用の単体contractを維持する。
 
 ```ts
 type ResolveReadingRequest = {
@@ -170,59 +174,134 @@ type ResolveReadingRequest = {
   readingHint?: string;
 };
 
+type ReadingResolverMetadata = {
+  resolverIdentifier: string;
+  promptVersion: string;
+  inferenceConfigVersion: string;
+  providerResponseId?: string;
+  durationMs?: number;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+};
+
 type ReadingResolution =
   | {
       status: "resolved";
       reading: ReadingResult;
+      metadata: ReadingResolverMetadata;
     }
   | {
       status: "unresolved";
+      metadata: ReadingResolverMetadata;
     };
-
-interface ReadingResolver {
-  resolve(request: ResolveReadingRequest): Promise<ReadingResolution>;
-}
 ```
-
-既存 `ReadingResult` を再利用する。
 
 `readingHint` はCandidate Generationから返された補助情報であり、確定readingとして扱わない。
 
-Resolverはhintを利用してよいが、最終的に確定した `ReadingResult` を返す責務を持つ。
+### 6.3 Batch resolve contract
 
-### 6.3 Source word
+candidate reading用:
 
-初回Generationではsource wordをReadingResolverへ渡す。
+```ts
+type ResolveReadingBatchItem = {
+  requestKey: string;
+  surface: string;
+  readingHint?: string;
+};
 
-source readingがunresolvedの場合、Generation Use Caseは失敗する。
+type ResolveReadingBatchRequest = {
+  items: readonly ResolveReadingBatchItem[];
+};
 
-LLM Candidate Generationは呼び出さない。
+type ReadingBatchItemResult =
+  | {
+      requestKey: string;
+      status: "resolved";
+      reading: ReadingResult;
+    }
+  | {
+      requestKey: string;
+      status: "unresolved";
+      reading: null;
+    };
 
-DBにも何も保存しない。
+type ResolveReadingBatchResult = {
+  results: readonly ReadingBatchItemResult[];
+  metadata: ReadingResolverMetadata;
+};
 
-### 6.4 Candidate word
+interface ReadingResolver {
+  resolve(
+    request: ResolveReadingRequest,
+  ): Promise<ReadingResolution>;
 
-CandidateごとにResolverを呼び出す。
+  resolveBatch(
+    request: ResolveReadingBatchRequest,
+  ): Promise<ResolveReadingBatchResult>;
+}
+```
 
-candidate単位で `status = unresolved` の場合、そのcandidateだけを後段評価対象から除外する。
+実コードでは既存Domain型へ合わせて最小調整してよい。
 
-raw Generation Resultには残る。
+### 6.4 Source word
 
-Resolver自体がthrow / provider failureした場合はcandidate単体のunresolvedとは区別し、Round全体を失敗させる。
+Initial Generationではsource wordを `resolve` へ渡す。
 
-### 6.5 StubReadingResolver
+```text
+resolved
+-> source readingとして使用
+-> source reading resolution snapshotをPersistenceへ渡す
 
-M7ではfixture injection型のdeterministic StubをInfrastructureに実装する。
+unresolved
+-> SOURCE_READING_UNRESOLVED
+-> Candidate Generationを呼ばない
+-> Session / Roundを保存しない
 
-fixtureに存在しないsurfaceは `unresolved`。
+Resolver system failure
+-> READING_RESOLVER_FAILED
+-> Session / Roundを保存しない
+```
 
-以下は行わない。
+Rerollでは従来どおりSession保存済みsource readingを再利用し、source Reading Resolverを再呼出ししない。
 
-- network
-- random
-- dictionary install
-- LLM call
-- environment-dependent behavior
+### 6.5 Candidate word
+
+Generationのunique candidateKey filter後、candidate群を1つの `resolveBatch` requestへ渡す。
+
+`requestKey` にはcandidateKeyを使用してよい。
+
+batch resultをrequestKeyでreconcileする。
+
+```text
+unique matching resolved
+-> Rhyme / Sound処理へ進む
+
+item unresolved
+-> 該当candidateのみ除外
+
+missing / duplicate / unknown requestKey
+-> 1対1対応できない該当candidateを除外
+
+batch-level provider / parse / refusal failure
+-> Round全体をREADING_RESOLVER_FAILED
+```
+
+candidate readingのraw batch result / metadataはcompleted RoundのPersistence snapshotへ残す。
+
+### 6.6 StubReadingResolver
+
+Stubはfixture injection型deterministic behaviorを維持し、`resolveBatch` も同じfixtureから決定論的に返す。
+
+Stub metadataはreal providerと同じcontractへ合わせるが、network / random / LLM / environment dependencyを追加しない。
+
+### 6.7 Real provider
+
+M10のreal providerはInfrastructure `OpenAiReadingResolver` とする。
+
+OpenAI API固有contract、model、prompt、Structured Outputsの詳細は `docs/external-adapter-design-v0.1.md` を参照する。
 
 ---
 
@@ -313,16 +392,17 @@ Initial Generation / Reroll直後の新規CandidateResultはfeedback未登録の
 3. Source Rhyme Normalization
 4. Candidate Generation
 5. generation candidateKey ambiguity filter
-6. Candidate Reading Resolution
-7. Candidate Rhyme Normalization
-8. Sound Scoring
-9. Semantic Evaluation
-10. Semantic result reconciliation
-11. Candidate Selector
-12. Completed Round Snapshot assembly
-13. Persistence Portへatomic save要求
-14. persisted ID mappingとselected resultを結合
-15. GeneratedRoundViewを返す
+6. Candidate Reading Batch Resolution
+7. candidate reading result reconciliation
+8. Candidate Rhyme Normalization
+9. Sound Scoring
+10. Semantic Evaluation
+11. Semantic result reconciliation
+12. Candidate Selector
+13. Completed Round Snapshot assembly
+14. Persistence Portへatomic save要求
+15. persisted ID mappingとselected resultを結合
+16. GeneratedRoundViewを返す
 ```
 
 ApplicationはSound ScorerのformulaやCandidate Selectorの4/3/3 ruleを再実装しない。
@@ -417,20 +497,23 @@ raw `GenerateCandidatesResult` には元の重複を残す。
 
 ## 14. Candidate Reading / Sound processing
 
-generation candidateKey integrityを通過したcandidateについて、
+generation candidateKey integrityを通過したcandidateをまとめてReadingResolverへ渡す。
 
 ```text
-candidate surface
-+ readingHint?
+[
+  candidateKey
+  surface
+  readingHint?
+]
 ↓
-ReadingResolver
+ReadingResolver.resolveBatch
+↓
+requestKey(candidateKey) reconciliation
 ```
 
-を実行する。
+candidate 1件ごとのreal external callを行わない。
 
-`unresolved` candidateは除外。
-
-resolved candidateは、
+valid resolved candidateのみ、
 
 ```text
 ReadingResult
@@ -442,11 +525,13 @@ Sound Scorer(source rhyme, candidate rhyme)
 
 へ進める。
 
-Sound ScorerはM3実装をそのまま使用する。
+item-level `unresolved` / missing / duplicate responseはそのcandidateを除外する。
 
-Application側でSound Scoreを再計算・補正しない。
+batch-level system failure / refusal / parse failureはRound全体を `READING_RESOLVER_FAILED` とする。
 
-Candidate ReadingResolverがsystem errorとしてthrowした場合はRound全体を失敗させる。
+Sound ScorerはM3実装をそのまま使用し、Application側でSound Scoreを再計算・補正しない。
+
+raw candidate Reading batch resultは、completed Roundとなる場合Persistence snapshotへ渡す。
 
 ---
 
@@ -606,8 +691,10 @@ User / Session context
 Round conditions
 
 raw GenerateCandidatesResult
+raw Candidate Reading Batch Result
 raw EvaluateSemanticsResult
 
+source Reading Resolution + metadata
 source Reading / Rhyme
 evaluated candidates:
   ReadingResult
@@ -1110,7 +1197,7 @@ performance timing instrumentationはM7の実pipelineが完成した後の将来
 
 ## 35. Integration Test strategy
 
-M7ではApplication pipelineを本物のDomain module + Stub external adapter + temporary SQLite Persistenceで接続するIntegration Testを中心とする。
+M7以降のApplication Integration Testは本物のDomain module + Stub external adapter + temporary SQLite Persistenceで接続する。M10でもdefault testはStubのままnetworkを使用しない。
 
 ```text
 Application Service
@@ -1164,15 +1251,18 @@ test DBは本番local DBと分離する。
 - DB変更なし
 - `READING_RESOLVER_FAILED`
 
-### 36.5 Candidate unresolved
+### 36.5 Candidate unresolved / batch reconciliation
 
+- candidate batchは1回の `resolveBatch` call
 - unresolved candidateだけevaluated poolから除外
+- missing / duplicate / unknown requestKeyを安全にreconcile
 - raw Generation Resultには残る
+- completed Roundではraw Reading batch snapshotも残す
 - 他candidateでRound完成
 
 ### 36.6 Candidate ReadingResolver system failure
 
-- candidate resolver throw
+- batch-level resolver throw / failure
 - Round全体失敗
 - DB変更なし
 
@@ -1553,3 +1643,77 @@ Generation / Reroll orchestration
 ```
 
 この追補はM9のWeb UIを成立させるためのread-model拡張であり、M7のDomain / orchestration意味を変更しない。
+
+---
+
+## 46. M10 Real Reading Resolver extension
+
+M10では `ReadingResolver` のPort ownershipを維持したままreal providerを接続する。
+
+主なApplication変更は以下に限定する。
+
+```text
+single source resolve
+  -> metadata付きReadingResolution
+
+candidate reading
+  -> resolveBatchへ変更
+  -> candidateKey/requestKey reconciliation
+
+completed Initial Round
+  -> source reading resolution snapshot保存
+  -> candidate reading batch snapshot保存
+
+completed Reroll
+  -> stored sourceReadingを再利用
+  -> candidate reading batch snapshot保存
+```
+
+### 46.1 Source provenance
+
+Initial Generationのsource Reading resolutionには、
+
+```text
+resolverIdentifier
+promptVersion
+inferenceConfigVersion
+providerResponseId?
+durationMs?
+usage?
+```
+
+を保持し、Persistence Portへ渡す。
+
+Rerollはsource Reading Resolverを再呼出ししないため、新しいsource provider call metadataは発生しない。
+
+### 46.2 Candidate provenance
+
+candidate batch resolution raw resultは、resolved / unresolved双方とprovider metadataを保持する。
+
+CandidateResultへ保存されるのは引き続き正常に評価まで進んだcandidateのみ。
+
+Reading段階で除外されたcandidateの情報はRound-level raw reading snapshotで分析可能にする。
+
+### 46.3 Failure persistence
+
+既存方針を維持する。
+
+```text
+source unresolved / resolver failure
+-> completed Session/Roundなし
+
+candidate batch provider failure
+-> completed Roundなし
+
+candidate item unresolved
+-> candidate単体除外
+-> valid candidateが残ればcompleted Round保存
+```
+
+M10でもfailed operation tableは作らない。
+
+### 46.4 No Domain dependency
+
+Application / DomainへOpenAI SDK型を導入しない。
+
+OpenAI-specific response objectはInfrastructure内でApplication-owned Reading / LLM resultへmappingする。
