@@ -1,13 +1,7 @@
 import type { z } from "zod";
+import type { PublicApiErrorCode } from "../../contracts/api";
 
-export type PublicApiErrorCode =
-  | "INVALID_REQUEST"
-  | "UNSUPPORTED_MEDIA_TYPE"
-  | "SOURCE_READING_UNRESOLVED"
-  | "NO_EVALUABLE_CANDIDATES"
-  | "NOT_FOUND"
-  | "UPSTREAM_UNAVAILABLE"
-  | "INTERNAL_ERROR";
+export type { PublicApiErrorCode } from "../../contracts/api";
 
 export class ApiBoundaryError extends Error {
   constructor(
@@ -82,4 +76,3 @@ export async function parseJsonBody<TSchema extends z.ZodType>(
   }
   return parsed.data;
 }
-

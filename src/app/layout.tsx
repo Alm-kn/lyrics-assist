@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Lyrics Assist",
+  title: "ことばを探す",
   description: "Japanese lyric-writing assistance beta",
 };
 

@@ -262,6 +262,10 @@ export function joinPersistedRound(
         sound: candidate.soundResult,
         semantic: candidate.semanticResult,
         selection,
+        feedback: {
+          candidate: null,
+          soundScore: null,
+        },
       };
     },
   );

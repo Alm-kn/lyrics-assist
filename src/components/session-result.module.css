@@ -1,0 +1,157 @@
+.page {
+  display: grid;
+  gap: clamp(2rem, 5vw, 3.5rem);
+  width: min(100%, 64rem);
+  margin: 0 auto;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1.25rem 2rem;
+  align-items: end;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  font-family: ui-serif, "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: clamp(2.4rem, 8vw, 4.8rem);
+  font-weight: 500;
+  line-height: 1;
+  margin: 0.25rem 0 0;
+}
+
+.eyebrow,
+.reading {
+  color: var(--muted);
+  font-size: 0.88rem;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+.reading {
+  margin-top: 0.65rem;
+}
+
+.actions,
+.errorActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.detailLink,
+.errorActions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--ink);
+  padding: 0.65rem 1.1rem;
+  text-decoration: none;
+}
+
+.rerollStatus {
+  grid-column: 1 / -1;
+  min-height: 1.25rem;
+}
+
+.rerollStatus p,
+.feedbackStatus p {
+  color: var(--danger);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  display: grid;
+  gap: 1.4rem;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  padding: clamp(1.25rem, 4vw, 1.75rem);
+}
+
+.word h2 {
+  font-family: ui-serif, "Yu Mincho", "Hiragino Mincho ProN", serif;
+  font-size: clamp(1.75rem, 5vw, 2.4rem);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+.word p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.feedback {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.feedback button {
+  background: transparent;
+  color: var(--muted);
+}
+
+.feedback button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.feedbackStatus {
+  min-height: 1.2rem;
+}
+
+.loading,
+.empty,
+.loadError {
+  width: min(100%, 64rem);
+  margin: 0 auto;
+  padding: clamp(3rem, 12vw, 8rem) 0;
+}
+
+.empty {
+  color: var(--muted);
+  text-align: center;
+}
+
+.loadError {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (max-width: 42rem) {
+  .header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions > * {
+    flex: 1 1 auto;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

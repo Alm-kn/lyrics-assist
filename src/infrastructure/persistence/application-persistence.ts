@@ -206,6 +206,12 @@ export class SqliteApplicationPersistence
             loaded.selectionResult.selected,
             candidate.candidateKey,
           ),
+          feedback: {
+            candidate:
+              this.feedback.getCandidateFeedback(candidate.id)?.value ?? null,
+            soundScore:
+              this.feedback.getSoundScoreFeedback(candidate.id)?.value ?? null,
+          },
         }));
       return {
         roundId: loaded.id,

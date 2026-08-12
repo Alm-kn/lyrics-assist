@@ -3,37 +3,11 @@ import type {
   GeneratedRoundView,
   SessionView,
 } from "../../application";
-
-export interface ApiCandidate {
-  readonly candidateResultId: string;
-  readonly surface: string;
-  readonly reading: string;
-  readonly sound: {
-    readonly finalScore: number;
-    readonly breakdown: {
-      readonly moraLengthScore: number;
-      readonly positionMatchScore: number;
-      readonly sequenceSimilarityScore: number;
-    };
-    readonly endingAdjustment: {
-      readonly commonSuffixLength: number;
-      readonly suffixCoverage: number;
-      readonly bonus: number;
-    };
-  };
-  readonly semantic: {
-    readonly score: number;
-    readonly reason: string;
-    readonly primaryRelation: string;
-    readonly secondaryRelations: readonly string[];
-    readonly semanticCluster: string;
-  };
-  readonly selection: {
-    readonly category: GeneratedCandidateView["selection"]["selectionCategory"];
-    readonly fallbackStrategy?: "balanced" | "sound" | "semantic";
-    readonly rank: number;
-  };
-}
+import type {
+  ApiCandidate,
+  GeneratedRoundApiDto,
+  SessionApiDto,
+} from "../../contracts/api";
 
 function mapCandidate(candidate: GeneratedCandidateView): ApiCandidate {
   const endingAdjustment = candidate.sound.adjustments.find(
@@ -75,10 +49,13 @@ function mapCandidate(candidate: GeneratedCandidateView): ApiCandidate {
         : {}),
       rank: candidate.selection.selectionRank,
     },
+    feedback: candidate.feedback,
   };
 }
 
-export function mapGeneratedRoundDto(round: GeneratedRoundView) {
+export function mapGeneratedRoundDto(
+  round: GeneratedRoundView,
+): GeneratedRoundApiDto {
   return {
     sessionId: round.sessionId,
     roundId: round.roundId,
@@ -88,7 +65,7 @@ export function mapGeneratedRoundDto(round: GeneratedRoundView) {
   };
 }
 
-export function mapSessionDto(session: SessionView) {
+export function mapSessionDto(session: SessionView): SessionApiDto {
   return {
     sessionId: session.sessionId,
     source: session.source,
@@ -99,4 +76,3 @@ export function mapSessionDto(session: SessionView) {
     })),
   };
 }
-

@@ -1,5 +1,12 @@
-export type CandidateFeedbackValue = "like" | "dislike";
-export type SoundScoreFeedbackValue = "low" | "valid" | "high";
+import type {
+  CandidateFeedbackValue,
+  SoundScoreFeedbackValue,
+} from "../../contracts/feedback";
+
+export type {
+  CandidateFeedbackValue,
+  SoundScoreFeedbackValue,
+} from "../../contracts/feedback";
 
 export type FeedbackPersistenceResult = "saved" | "not_found";
 
@@ -16,4 +23,3 @@ export interface FeedbackPersistencePort {
     readonly value: SoundScoreFeedbackValue;
   }): Promise<FeedbackPersistenceResult>;
 }
-

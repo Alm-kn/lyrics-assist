@@ -81,6 +81,10 @@ function candidate(
       selectionScore: 80,
       selectionReason: "internal selection reason",
     },
+    feedback: {
+      candidate: null,
+      soundScore: null,
+    },
     ...overrides,
   };
 }
@@ -114,6 +118,7 @@ function sessionView(): SessionView {
               selectionScore: 70,
               selectionReason: "internal",
             },
+            feedback: { candidate: "dislike", soundScore: "valid" },
           }),
         ],
       },
@@ -216,6 +221,7 @@ describe("M8 Backend API", () => {
               semanticCluster: "light",
             },
             selection: { category: "balanced", rank: 1 },
+            feedback: { candidate: null, soundScore: null },
           },
         ],
       },
@@ -271,6 +277,13 @@ describe("M8 Backend API", () => {
       deps,
     );
     expect(valid.status).toBe(201);
+    expect(await bodyOf(valid)).toMatchObject({
+      data: {
+        candidates: [
+          { feedback: { candidate: null, soundScore: null } },
+        ],
+      },
+    });
     expect(deps.rerollService.reroll).toHaveBeenCalledWith({
       userId: BETA_USER_ID,
       sessionId: SESSION_ID,
@@ -327,6 +340,10 @@ describe("M8 Backend API", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.data.rounds.map((round) => round.roundNumber)).toEqual([2, 1]);
+    expect(body.data.rounds[0]?.candidates[0]?.feedback).toEqual({
+      candidate: "dislike",
+      soundScore: "valid",
+    });
     expect(JSON.stringify(body)).not.toContain("candidateKey");
 
     const invalid = await handleSessionQuery(

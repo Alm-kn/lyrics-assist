@@ -4,6 +4,7 @@ import type {
   SemanticResult,
   SoundScoreResult,
 } from "../domain";
+import type { CandidateFeedbackState } from "../contracts/feedback";
 
 export interface GenerationApplicationConfig {
   readonly generationTargetCount: number;
@@ -21,6 +22,7 @@ export interface GeneratedCandidateView {
   readonly sound: SoundScoreResult;
   readonly semantic: SemanticResult;
   readonly selection: SelectedCandidate;
+  readonly feedback: CandidateFeedbackState;
 }
 
 export interface GeneratedRoundView {
@@ -46,4 +48,3 @@ export interface SessionView {
     readonly candidates: readonly GeneratedCandidateView[];
   }[];
 }
-

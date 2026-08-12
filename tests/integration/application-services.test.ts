@@ -609,27 +609,48 @@ describe("M7 Application services integration", () => {
     }).generateInitialRound({ userId: "owner", sourceSurface: "夜" });
     const candidateResultId = result.candidates[0]!.candidateResultId;
     const service = new FeedbackService(persistence);
+    const query = new SessionQueryService(persistence);
+
+    expect(
+      (await query.getSession({ userId: "owner", sessionId: result.sessionId }))
+        .rounds[0]?.candidates[0]?.feedback,
+    ).toEqual({ candidate: null, soundScore: null });
 
     await service.submitCandidateFeedback({
       userId: "owner",
       candidateResultId,
       value: "like",
     });
+    expect(
+      (await query.getSession({ userId: "owner", sessionId: result.sessionId }))
+        .rounds[0]?.candidates[0]?.feedback,
+    ).toEqual({ candidate: "like", soundScore: null });
     await service.submitCandidateFeedback({
       userId: "owner",
       candidateResultId,
       value: "dislike",
     });
-    for (const value of ["low", "valid", "high"] as const) {
-      await service.submitSoundScoreFeedback({
-        userId: "owner",
-        candidateResultId,
-        value,
-      });
-    }
+    await service.submitSoundScoreFeedback({
+      userId: "owner",
+      candidateResultId,
+      value: "low",
+    });
+    expect(
+      (await query.getSession({ userId: "owner", sessionId: result.sessionId }))
+        .rounds[0]?.candidates[0]?.feedback,
+    ).toEqual({ candidate: "dislike", soundScore: "low" });
+    await service.submitSoundScoreFeedback({
+      userId: "owner",
+      candidateResultId,
+      value: "valid",
+    });
 
     expect(connection.db.select().from(candidateFeedback).get()?.value).toBe("dislike");
-    expect(connection.db.select().from(soundScoreFeedback).get()?.value).toBe("high");
+    expect(connection.db.select().from(soundScoreFeedback).get()?.value).toBe("valid");
+    expect(
+      (await query.getSession({ userId: "owner", sessionId: result.sessionId }))
+        .rounds[0]?.candidates[0]?.feedback,
+    ).toEqual({ candidate: "dislike", soundScore: "valid" });
     expect(connection.db.select({ value: count() }).from(candidateFeedback).get()?.value).toBe(1);
     expect(connection.db.select({ value: count() }).from(soundScoreFeedback).get()?.value).toBe(1);
     await expectApplicationError(
