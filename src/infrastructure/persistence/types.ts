@@ -3,46 +3,23 @@ import type {
   ReadingResult,
   RhymeRepresentations,
   SelectionCategory,
-  SelectionConfig,
   SelectionResult,
   SelectionTargetCategory,
   SemanticResult,
   SoundScoreResult,
-  SoundScoringConfig,
 } from "../../domain";
+import type { CompletedRoundSnapshot } from "../../application";
 import type {
   EvaluateSemanticsResult,
   GenerateCandidatesResult,
 } from "../../application/ports/llm-adapter";
 
-export type CandidateFeedbackValue = "like" | "dislike";
-export type SoundScoreFeedbackValue = "low" | "valid" | "high";
-
-/** One unmodified, fully evaluated member of the candidate pool. */
-export interface CompletedCandidateSnapshot {
-  readonly candidateKey: CandidateKey;
-  readonly generationIndex: number;
-  readonly surface: string;
-  readonly readingResult: ReadingResult;
-  readonly rhymeRepresentation: RhymeRepresentations;
-  readonly soundResult: SoundScoreResult;
-  readonly semanticResult: SemanticResult;
-}
-
-/** Completed in-memory round data accepted by Persistence after selection. */
-export interface CompletedRoundSnapshot {
-  readonly roundNumber: number;
-  readonly generationTargetCount: number;
-  readonly excludeTerms: readonly string[];
-  readonly generationResult: GenerateCandidatesResult;
-  readonly semanticEvaluationResult: EvaluateSemanticsResult;
-  readonly sourceRhyme: RhymeRepresentations;
-  readonly scoringConfig: SoundScoringConfig;
-  readonly selectionConfig: SelectionConfig;
-  readonly selectionResult: SelectionResult;
-  readonly candidates: readonly CompletedCandidateSnapshot[];
-  readonly createdAt?: number;
-}
+export type {
+  CandidateFeedbackValue,
+  CompletedCandidateSnapshot,
+  CompletedRoundSnapshot,
+  SoundScoreFeedbackValue,
+} from "../../application";
 
 export interface FirstRoundPersistenceInput {
   readonly userId?: string;

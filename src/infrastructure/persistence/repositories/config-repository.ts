@@ -11,6 +11,13 @@ type PersistenceExecutor =
   | PersistenceDatabase
   | NodeSQLiteTransaction<EmptyRelations>;
 
+export class ImmutableConfigConflictError extends Error {
+  constructor(label: string) {
+    super(`${label} version already exists with different content`);
+    this.name = "ImmutableConfigConflictError";
+  }
+}
+
 function ensureImmutableConfig<TConfig>(
   executor: PersistenceExecutor,
   table: typeof scoringConfigs | typeof selectionConfigs,
@@ -34,7 +41,7 @@ function ensureImmutableConfig<TConfig>(
   }
 
   if (existing.configJson !== configJson) {
-    throw new Error(`${label} version already exists with different content`);
+    throw new ImmutableConfigConflictError(label);
   }
 }
 
