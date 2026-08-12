@@ -42,83 +42,100 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - unit tests
 
 ### M3 - Sound Scorer
-- mora length similarity
-- normalized position match
-- standard Levenshtein sequence similarity
-- linear suffix-coverage ending bonus (0..10)
-- versioned sound scoring config
-- score breakdown / ending adjustment metrics
-- symmetry / determinism / boundary unit tests
+- mora length
+- vowel position match
+- sequence similarity
+- ending rhyme bonus
+- versioned config
+- unit tests
 
 ### M4 - LLM Adapter stub
-- Application PortとしてLLM Adapter contractを定義
-- `generateCandidates()` contract
-- `evaluateSemantics()` contract
-- candidateKeyによるcandidate対応付け
-- generation / semantic metadata
-- fixture injection型 deterministic Stub
-- network / OpenAI SDK / API keyなし
-- contract unit tests
-- M5以降には着手しない
+- Application-owned `LlmAdapter` Port
+- candidate generation schema
+- semantic evaluation schema
+- `candidateKey` based mapping
+- fixture injection型deterministic Stub
+- 実APIはまだ接続しない
 
 ### M5 - Candidate Selector
-- general canonical duplicate / exclude filter
-- Balanced 4 target
-- Sound-focused 3 target
-- Semantic-focused 3 target
-- semantic relation / cluster diversity
-- B -> S -> Semantic round-robin fallback
-- fallback diversity relaxation
-- deterministic tie-break
-- versioned SelectionConfig
-- selector unit tests
+- Balanced 4
+- Sound-focused 3
+- Semantic-focused 3
+- canonical duplicate filtering
+- semantic diversity
+- fallback allocation
+- unit tests
 
 ### M6 - Persistence
-- SQLite / Drizzle setup
-- 8 tables
-- migration files
-- schema constraints
-- Round snapshot persistence
-- Config immutable guarantee
-- Feedback upsert
-- transaction rollback integration test
-- DB file gitignore
-- no M7 pipeline
-- compatibility issue / RC dependency requirement occurs -> stop and report
+- SQLite + Drizzle
+- session / round / evaluated candidate snapshot / feedback / configs
+- migration
+- repository layer
+- atomic round persistence
+- immutable config snapshot
 
-### M7 - Application services
-- ReadingResolver Application Port
-- deterministic StubReadingResolver
+### M7 - Application Services / Pipeline Integration
+- `ReadingResolver` Application Port
+- deterministic `StubReadingResolver`
 - Persistence Application Ports
 - Initial Generation Service
 - Reroll Service
 - Feedback Service
 - Session Query Service
-- Application error contract
-- Application Integration Tests
-- no new npm dependency
-- no M8 API / M9 UI / real adapters
-- stop conditionsをapplication-service-design参照にする
+- Application Error contract
+- duplicate `candidateKey` / Semantic result reconciliation
+- candidate shortage / failure persistence behavior
+- Stub external adapters + real Domain + temporary SQLiteによるApplication Integration Tests
+- M8 API以降には進まない
+
+詳細: `docs/application-service-design-v0.1.md`
 
 ### M8 - Backend API
-- generation
-- reroll
-- session retrieval
-- candidate feedback
-- sound-score feedback
+- Next.js App Router Route Handlers
+- Node.js RuntimeをRoute単位で明示
+- ZodによるHTTP / JSON strict validation
+- POST endpointで `application/json` を要求
+- Browserから `userId` を受け取らない
+- server-side `FixedBetaUserResolver`
+- `LYRICS_ASSIST_BETA_USER_ID` から固定UUIDを解決
+- Initial Generation endpoint
+- Reroll endpoint
+- Session Query endpoint
+- Candidate Feedback endpoint
+- Sound Score Feedback endpoint
+- ApplicationError -> HTTP / public API error mapping
+- selected candidate向けAPI DTO
+- internal `candidateKey` / raw snapshot / DB detailを通常responseへ出さない
+- `Cache-Control: no-store`
+- same-origin private APIとして扱い、CORS許可を追加しない
+- current Stub ReadingResolver / Stub LLMをserver compositionで接続
+- Backend API Integration Tests
+- DB schema / migrationは変更しない
+- authentication / rate limit / real adapters / UIには進まない
+
+詳細: `docs/backend-api-design-v0.1.md`
+
+M8の固定beta userはauthenticationではない。
+M8時点のdeployment assumptionはowner-only / localまたはprivate利用とし、tester/public公開前にAuthenticatedUserResolverへの差し替えを別途設計する。
 
 ### M9 - Web UI
 - initial screen
 - result screen
 - detail XY scatter plot
 - reroll
-- feedback
+- candidate feedback
+- sound-score feedback
+- M8 Backend APIとの接続
+- Browser E2E
 
-### M10 - Real LLM connection and beta evaluation
+### M10 - Real External Adapters / β Evaluation
+- Real LLM Adapter
 - OpenAI Responses API + Structured Outputs
-- model via environment variable
+- Real Reading Resolver
+- model / provider config via server-side environment
 - fixed keyword evaluation set
 - latency / quality / cost observation
+- β feedbackを用いたscoring / selection仮説の評価
 
 ## Codex task rule
 
@@ -126,3 +143,20 @@ Codexへ要件定義書と設計書を一度に渡して「全部実装」させ
 - 次Milestoneへ自動で進まない。
 - 完了時に変更ファイル、実行した検証、残課題を報告する。
 - 設計変更が必要なら実装で黙って吸収せず、提案として止める。
+- 詳細設計文書があるMilestoneでは、その文書を実装時のSource of Truthとして読む。
+
+## M8 implementation stop conditions
+
+M8では以下に該当した場合、独自判断でscopeを広げず停止して報告する。
+
+- M7 Application contract変更が必要
+- DB schema / migration変更が必要
+- Session QueryへFeedback current state追加が必須
+- authentication / public tester accessが必要
+- CORS許可やrate limitingが必要
+- Zod以外の新direct dependencyが必要
+- real LLM / real Reading Resolverが必要
+- M9 UI仕様を先に確定しないとAPI contractを作れない
+- Product上の新しい入力制限が必要
+
+M8完了後は、docs / tests / implementation reportを確認してからM9へ進む。

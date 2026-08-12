@@ -1,4 +1,4 @@
-# 歌詞作成補助ツール システム設計書 v0.1.4 β
+# 歌詞作成補助ツール システム設計書 v0.1.5 β
 
 > v0.1の実装設計のSource of Truth。技術スタックはβ向け仮決定であり、製品挙動を変えない実装詳細はDecision Logを更新した上で変更可能。
 
@@ -101,7 +101,7 @@ Application -X-> concrete Infrastructure implementation
 | レイヤ | 責務 | 依存の方向 |
 | --- | --- | --- |
 | Web UI | 入力、候補表示、XY詳細、リロール、FB | Backend APIのみ |
-| Backend API | HTTP受付、validation、user識別、レスポンス整形 | Application Services |
+| Backend API | HTTP受付、Zod validation、server-side beta user識別、Application Error→HTTP変換、API DTO整形 | Application Services |
 | Application | ユースケース進行、処理順制御、Port呼出し、completed Roundのatomic persistence要求 | Domain / Application Ports |
 | Domain | 韻正規化・語感採点・候補選抜の決定論的ルール | 外部I/Oへ直接依存しない |
 | Application Ports | Reading / LLM / Persistence等の外部能力をApplicationから利用する契約を定義 | Domain / Application DTO |
@@ -706,17 +706,60 @@ Normalizer / ScoringConfig / SelectionConfig / Generation model / Prompt等のRo
 
 将来新しいScorer / Selectorで過去データを再評価しても、元CandidateResultをUPDATEしない。再評価結果の永続化が必要になった場合は別entityとして追加する。
 
-# 9. Backend API（論理I/F）
+# 9. Backend API
 
-| Method | Path | 用途 |
-| --- | --- | --- |
-| POST | /api/generations | 新規キーワードからSession + Round 1生成 |
-| POST | /api/sessions/{id}/reroll | 同一Sessionへ次Roundを追加 |
-| GET | /api/sessions/{id} | Sessionと表示対象Roundを取得 |
-| POST | /api/feedback/candidate | Like / Dislike保存 |
-| POST | /api/feedback/sound-score | 低すぎる / 妥当 / 高すぎる保存 |
+M8ではNext.js App RouterのRoute HandlerをBrowser / Application間のHTTP境界として実装する。
 
-APIキー等のLLM秘密情報はBrowserへ渡さず、Backendのみで保持する。
+```text
+Browser
+  ↓ HTTP / JSON
+Backend API
+  - Content-Type / JSON validation
+  - Zod strict schema validation
+  - server-side beta user resolution
+  - Application Service invocation
+  - ApplicationError -> HTTP / public API error mapping
+  - API DTO mapping
+  ↓
+Application Services
+```
+
+SQLiteは `node:sqlite` を使用するため、各Route Handlerは `runtime = "nodejs"` を明示する。Route HandlerでDomain ruleやDrizzle queryを直接実装しない。
+
+| Method | Path | 用途 | Success |
+| --- | --- | --- | ---: |
+| POST | `/api/generations` | 新規キーワードからSession + Round 1生成 | 201 |
+| POST | `/api/sessions/{sessionId}/reroll` | 同一Sessionへ次Roundを追加 | 201 |
+| GET | `/api/sessions/{sessionId}` | Sessionとselected候補を取得 | 200 |
+| POST | `/api/feedback/candidate` | Like / Dislike保存 | 200 |
+| POST | `/api/feedback/sound-score` | low / valid / high保存 | 200 |
+
+POST endpointは `application/json` を要求し、request objectはZodでstrict validationする。Rerollも `{}` JSON bodyを要求する。
+
+v0.1ではBrowserから `userId` を受け取らない。Backend側の `FixedBetaUserResolver` がserver-only環境変数 `LYRICS_ASSIST_BETA_USER_ID` から固定UUIDを解決し、M7 Application Serviceへ注入する。Browserから送られた未定義 `userId` fieldはvalidation errorとする。
+
+この固定identityはauthenticationではなく、M8のdeployment assumptionはowner-only / localまたはprivateな利用である。tester公開・public deploymentの前にAuthenticatedUserResolverへ差し替える。
+
+通常API responseはselected candidateに必要な表示情報だけを返し、raw Generation / Semantic snapshot、unselected pool、internal `candidateKey`、DB row、server userId、内部error causeを返さない。
+
+API responseは `Cache-Control: no-store` とし、v0.1ではcross-origin APIをsupportせずCORS許可headerを追加しない。
+
+Application ErrorはHTTP境界で以下の意味へ縮約する。
+
+```text
+400 INVALID_REQUEST
+404 NOT_FOUND
+415 UNSUPPORTED_MEDIA_TYPE
+422 SOURCE_READING_UNRESOLVED / NO_EVALUABLE_CANDIDATES
+502 UPSTREAM_UNAVAILABLE
+500 INTERNAL_ERROR
+```
+
+DB error、stack trace、filesystem path、provider raw error等の内部情報をBrowserへ露出しない。
+
+M8時点ではserver compositionも `StubReadingResolver` / `StubLlmAdapter` を使用し、real external adaptersには進まない。任意keywordへの実用生成はM10の責務とする。
+
+詳細なrequest / response schema、identity、error mapping、test boundaryは `docs/backend-api-design-v0.1.md` を参照する。
 
 # 10. UI状態設計
 
@@ -810,13 +853,18 @@ Application-level error codeと保存挙動の詳細は `docs/application-servic
 
 - LLM APIキーはBackendのみで管理し、Browserへ埋め込まない。
 - LLMへ送信する情報はキーワード・候補・評価に必要な最小限とする。
-- Application Use Caseは `userId` でresource ownershipをscopeし、owner / testerデータの混在を防ぐ。v0.1ではauthentication自体はまだ実装しない。
-- 公開範囲拡大時に認証・rate limit・利用規約等を再設計する。v0.1では先取りしない。
+- Application Use Caseは `userId` でresource ownershipをscopeする。
+- M8ではBrowserから `userId` を受け取らず、server-side `FixedBetaUserResolver` が固定UUIDを注入する。
+- `LYRICS_ASSIST_BETA_USER_ID` は `NEXT_PUBLIC_` を付けず、Browserへ返さない。
+- M8の固定beta userはauthenticationではないため、owner-only / localまたはprivate deploymentを前提とする。
+- POST APIはJSON Content-Typeを要求し、cross-origin CORS許可は行わない。ただしこれはauthenticationの代替ではない。
+- tester公開・public deploymentの前にauthentication / authorization / rate limit等を再設計する。
+
 ## 13.3 観測性
 
 β調整のため、Session ID / Round / candidate pool size / selected / unselected、category allocation、fallback、version群等を後から追跡できるデータ構造を維持する。
 
-LLM latency / failure / token usage / performance timing等のoperation-level観測性はM7でも永続化しない。Application pipeline完成後、実測されたbottleneckとβ分析需要を見て必要なstage timing / operation logを設計する。
+LLM latency / failure / token usage / performance timing等のoperation-level観測性はM7/M8でも永続化しない。Application pipeline完成後、実測されたbottleneckとβ分析需要を見て必要なstage timing / operation logを設計する。
 
 # 14. テスト設計
 
@@ -846,8 +894,9 @@ LLM latency / failure / token usage / performance timing等のoperation-level観
 | Feedback | Candidate Like/DislikeとSound Feedbackを別系統でcurrent-state保存し、user ownershipを確認する |
 | Persistence failure | Applicationが成功responseを返さず、atomic rollbackされる |
 | M6 Persistence | schema / FK / UNIQUE / CHECK / migration / transaction correctnessはM6 Integration Testで継続保証する |
+| Backend API boundary | JSON/Zod validation、固定beta user注入、HTTP status/error mapping、DTO masking、Route Handler wiringを確認する |
 
-M7の詳細test caseは `docs/application-service-design-v0.1.md` を参照する。
+M7のApplication test詳細は `docs/application-service-design-v0.1.md`、M8のAPI test詳細は `docs/backend-api-design-v0.1.md` を参照する。
 
 ## 14.3 E2E / β検証
 
@@ -877,7 +926,8 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 | O-04 | Lyric Adjustment詳細 | 最大±10点枠のみ。β事例から追加 |
 | O-05 | Balanced係数/cluster cap | 0.7/0.3、同cluster最大2をβ仮説として採用 |
 | O-06 | relation taxonomy | 暫定集合を採用。実出力を見て統廃合 |
-| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
+| O-07 | 性能目標 | generationTargetCount 60をv0.1 defaultとする。M7/M8ではtimingを永続化せず、実pipeline完成後の実測を基にSLO / instrumentationを検討。 |
+| O-08 | User authentication | M8ではserver-side固定beta userを使用。authenticationではない。tester/public公開前にAuthenticatedUserResolverへ差し替えて設計する。 |
 
 # 17. 実装への分解順
 
@@ -893,7 +943,7 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 
 6. ReadingResolver Port / Stub、Persistence Ports、Generation / Reroll / Feedback / Session Query Application Servicesを結合し、Application Integration Testで固定。
 
-7. Backend APIを公開。
+7. Next.js Route Handlers + ZodでBackend APIを公開し、server-side固定beta user、HTTP error mapping、API DTO境界を実装。
 
 8. 最小Web UI（初期→結果）を接続。
 
@@ -905,7 +955,9 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 
 実装開始時は本書全体を一度に『作って』と渡すより、上記1〜10を小さなマイルストーンとして順に実装・テストさせる。
 
-特にM7では `docs/application-service-design-v0.1.md` を詳細Source of Truthとし、Applicationからconcrete Infrastructureへ直接依存しないこと、M8以降へ進まないことを停止条件として扱う。
+M7では `docs/application-service-design-v0.1.md` を詳細Source of Truthとする。
+
+M8では `docs/backend-api-design-v0.1.md` を詳細Source of Truthとし、BrowserからuserIdを受け取らないこと、Route HandlerへDomain/Persistence ruleを埋め込まないこと、DB schemaを変更しないこと、M9以降へ進まないことを停止条件として扱う。
 
 # 18. 設計完了の判定
 
@@ -917,4 +969,5 @@ E2Eは初期/結果/詳細/リロール/FBの主要フローを少数ケース�
 - 新規生成 / リロール / Feedback / Session QueryのApplication責務と保存データが定義されている。
 - source / candidate reading failure、candidateKey reconciliation、候補不足、Persistence failureの扱いが定義されている。
 - UT/ITの責務境界が定義されている。
+- Backend APIのvalidation、server-side beta user identity、HTTP error mapping、公開DTO境界が定義されている。
 - 未決定事項が実装を阻害するものと、後決め可能なものに分離されている。
